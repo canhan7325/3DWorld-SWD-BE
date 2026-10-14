@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>Xác minh email · 3DWorld</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; font: 16px/1.6 system-ui, sans-serif; background: #f3f6fb; color: #182230; }
+        main { width: 100%; max-width: 460px; padding: 32px; border-radius: 16px; background: white; border: 1px solid #e2e8f0; }
+        .brand { color: #2563eb; font-weight: 700; }
+        h1 { font-size: 26px; margin: 12px 0; }
+        p { color: #475569; overflow-wrap: anywhere; }
+        button { width: 100%; padding: 12px; border: 0; border-radius: 8px; background: #2563eb; color: white; font: inherit; cursor: pointer; }
+        button:disabled { opacity: .6; cursor: default; }
+        #result { min-height: 28px; margin-bottom: 0; }
+    </style>
+</head>
+<body>
+<main>
+    <span class="brand">3DWorld</span>
+    <h1>Xác minh email</h1>
+    <p>Bấm nút bên dưới để xác minh địa chỉ <strong id="email"></strong>.</p>
+    <button id="confirm" type="button">Xác minh email</button>
+    <p id="result" role="status" aria-live="polite"></p>
+</main>
+<script>
+    const params = new URLSearchParams(location.search);
+    const email = params.get('email');
+    const token = params.get('token');
+    history.replaceState(null, '', location.pathname);
+    const button = document.getElementById('confirm');
+    const result = document.getElementById('result');
+    document.getElementById('email').textContent = email || '';
+    if (!email || !token) {
+        button.disabled = true;
+        result.textContent = 'Liên kết không hợp lệ. Vui lòng mở link trong email.';
+    }
+    button.addEventListener('click', async () => {
+        button.disabled = true;
+        result.textContent = 'Đang xác minh…';
+        try {
+            const response = await fetch('/api/auth/verify-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, token })
+            });
+            const body = await response.json();
+            result.textContent = body.message;
+            if (response.ok) button.textContent = 'Đã xác minh';
+            else button.disabled = false;
+        } catch {
+            result.textContent = 'Không thể kết nối tới máy chủ. Vui lòng thử lại.';
+            button.disabled = false;
+        }
+    });
+</script>
+</body>
+</html>
