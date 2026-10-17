@@ -41,4 +41,27 @@ public class ProductVariant {
 
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
+
+    public int availableQuantity() {
+        return stockQuantity - reservedQuantity;
+    }
+
+    public void reserve(int quantity) {
+        if (quantity < 1 || quantity > availableQuantity()) {
+            throw new IllegalArgumentException("Insufficient available stock.");
+        }
+        reservedQuantity += quantity;
+    }
+
+    public void release(int quantity) {
+        reservedQuantity = Math.max(0, reservedQuantity - quantity);
+    }
+
+    public void consume(int quantity) {
+        if (quantity < 1 || quantity > reservedQuantity) {
+            throw new IllegalArgumentException("Invalid reserved stock quantity.");
+        }
+        stockQuantity -= quantity;
+        reservedQuantity -= quantity;
+    }
 }
