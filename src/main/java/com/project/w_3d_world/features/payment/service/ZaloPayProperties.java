@@ -9,4 +9,5 @@ public record ZaloPayProperties(
         String key2,
         String createUrl,
         String queryUrl,
+        String refundUrl,
         String callbackUrl) {}

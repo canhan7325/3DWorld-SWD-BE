@@ -76,6 +76,7 @@ public class SecurityConfig {
                                                 "/reset-password",
                                                 "/verify-email.html",
                                                 "/reset-password.html",
+                                                "/api/payments/zalopay/callback",
                                                 "/swagger-ui.html",
                                                 "/swagger-ui/**",
                                                 "/v3/api-docs/**")

@@ -28,6 +28,29 @@ public class ZaloPayClient {
         return post(properties.createUrl(), payload);
     }
 
+    public Map<String, Object> queryOrder(String appTransId) {
+        Map<String, Object> payload = Map.of(
+                "app_id", properties.appId(),
+                "app_trans_id", appTransId,
+                "mac", hmac(properties.key1(), properties.appId() + "|" + appTransId + "|" + properties.key1()));
+        return post(properties.queryUrl(), payload);
+    }
+
+    public Map<String, Object> refundOrder(String providerTransactionId, int amount, String reason) {
+        long timestamp = System.currentTimeMillis();
+        String refundId = properties.appId() + "_" + timestamp;
+        Map<String, Object> payload = Map.of(
+                "app_id", properties.appId(),
+                "m_refund_id", refundId,
+                "zp_trans_id", providerTransactionId,
+                "amount", amount,
+                "description", reason,
+                "timestamp", timestamp,
+                "mac", hmac(properties.key1(), properties.appId() + "|"
+                        + providerTransactionId + "|" + amount + "|" + timestamp));
+        return post(properties.refundUrl(), payload);
+    }
+
     public boolean verifyCallback(String data, String mac) {
         return constantTimeEquals(hmac(properties.key2(), data), mac);
     }

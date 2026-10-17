@@ -14,6 +14,10 @@ public final class PaymentRequests {
             @NotNull @Schema(description = "ID of the source business record", example = "10")
                     Integer sourceId,
             @NotBlank @Schema(example = "TOPUP") String stage,
-            @NotNull @DecimalMin("1000.00") @Schema(example = "50000.00") BigDecimal amount,
+            @DecimalMin("1000.00")
+                    @Schema(
+                            description = "Required only for WALLET/TOPUP",
+                            example = "50000.00")
+                    BigDecimal amount,
             @Schema(example = "sandbox@example.com") String description) {}
 }

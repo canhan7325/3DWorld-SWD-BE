@@ -33,6 +33,7 @@ public class PaymentAttempt {
     @Column(name = "payment_method") private String paymentMethod;
     @Column(name = "provider_name", nullable = false) private String providerName = "ZALOPAY";
     @Column(name = "external_reference") private String externalReference;
+    @Column(name = "evidence_key") private String providerTransactionId;
     @Column(name = "attempt_status", nullable = false) private String attemptStatus = "PENDING";
     @Column(name = "requested_at") private Instant requestedAt;
     @Column(name = "verified_at") private Instant verifiedAt;
@@ -49,6 +50,7 @@ public class PaymentAttempt {
     }
 
     public void reference(String reference) { externalReference = reference; }
+    public void providerTransaction(String transactionId) { providerTransactionId = transactionId; }
     public void success() { attemptStatus = "SUCCESS"; verifiedAt = Instant.now(); completedAt = Instant.now(); }
     public void fail() { attemptStatus = "FAILED"; completedAt = Instant.now(); }
 }

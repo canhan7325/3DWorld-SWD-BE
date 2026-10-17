@@ -10,11 +10,13 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.Map;
+import java.math.BigDecimal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -38,6 +40,20 @@ public class PaymentController {
         return ApiResponse.success(paymentService.create(user.userId(), request));
     }
 
+    @PostMapping("/{transactionId}/refund")
+    @PreAuthorize("isAuthenticated()")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(
+            summary = "Request a ZaloPay refund",
+            description = "Creates a provider refund request for a successful payment.")
+    public ApiResponse<PaymentResponse> refund(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable int transactionId,
+            @RequestBody RefundRequest request) {
+        return ApiResponse.success(paymentService.refund(
+                user.userId(), transactionId, request.amount(), request.reason()));
+    }
+
     @PostMapping("/zalopay/callback")
     @Operation(
             summary = "Receive ZaloPay callback",
@@ -49,4 +65,6 @@ public class PaymentController {
     }
 
     public record CallbackRequest(String data, String mac) {}
+
+    public record RefundRequest(BigDecimal amount, String reason) {}
 }
