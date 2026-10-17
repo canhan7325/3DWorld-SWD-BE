@@ -2,12 +2,14 @@ package com.project.w_3d_world.common.config;
 
 import com.project.w_3d_world.common.response.ApiResponse;
 import com.project.w_3d_world.common.service.JwtService;
+import com.project.w_3d_world.features.auth.service.AuthSessionService;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -17,6 +19,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import tools.jackson.databind.ObjectMapper;
 
 @Configuration
+@EnableMethodSecurity
 public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -25,8 +28,9 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(
-            HttpSecurity http, JwtService jwtService, ObjectMapper objectMapper) throws Exception {
-        var jwtFilter = new JwtAuthenticationFilter(jwtService, objectMapper);
+            HttpSecurity http, JwtService jwtService, ObjectMapper objectMapper,
+            AuthSessionService sessionService) throws Exception {
+        var jwtFilter = new JwtAuthenticationFilter(jwtService, objectMapper, sessionService);
         return http.csrf(csrf -> csrf.disable())
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())

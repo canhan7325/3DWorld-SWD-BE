@@ -30,7 +30,7 @@ public class EmailService {
                     description
                             + "\n\n"
                             + link
-                            + "\n\nNếu không yêu cầu thao tác này, hãy bỏ qua email.";
+                            + "\n\nIf you did not request this action, you can ignore this email.";
             String html =
                     "<h2>3DWorld</h2><p>"
                             + HtmlUtils.htmlEscape(description)
@@ -39,7 +39,7 @@ public class EmailService {
                             + "\" style=\"display:inline-block;padding:12px"
                             + " 20px;background:#2563eb;color:white;border-radius:8px;text-decoration:none\">"
                             + HtmlUtils.htmlEscape(subject)
-                            + "</a></p><p>Nếu không yêu cầu thao tác này, hãy bỏ qua email.</p>";
+                            + "</a></p><p>If you did not request this action, you can ignore this email.</p>";
             helper.setText(text, html);
             mailSender.send(message);
         } catch (MessagingException exception) {

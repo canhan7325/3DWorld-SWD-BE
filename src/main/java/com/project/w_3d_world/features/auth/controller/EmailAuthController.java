@@ -31,7 +31,7 @@ public class EmailAuthController {
     @Operation(summary = "Verify email using the one-time token from the email link")
     public ApiResponse<Void> verify(@Valid @RequestBody VerifyEmailRequest request) {
         emailTokenService.verifyEmail(request.email(), request.token());
-        return new ApiResponse<>(200, "Email đã được xác minh.", null, OffsetDateTime.now());
+        return new ApiResponse<>(200, "Email verified successfully.", null, OffsetDateTime.now());
     }
 
     @PostMapping("/resend-verification")
@@ -53,14 +53,14 @@ public class EmailAuthController {
     public ApiResponse<Void> reset(@Valid @RequestBody ResetPasswordRequest request) {
         emailTokenService.resetPassword(request.email(), request.token(), request.newPassword());
         return new ApiResponse<>(
-                200, "Mật khẩu đã được đổi. Bạn có thể đăng nhập lại.", null, OffsetDateTime.now());
+                200, "Password changed successfully. You can log in again.", null, OffsetDateTime.now());
     }
 
     private ApiResponse<Void> genericResponse() {
         return new ApiResponse<>(
                 200,
-                "Nếu tài khoản đủ điều kiện, hướng dẫn sẽ được gửi qua email. Nếu vừa gửi yêu cầu,"
-                    + " vui lòng chờ trước khi gửi lại.",
+                "If the account is eligible, instructions will be sent by email. If you just requested a link,"
+                    + " please wait before requesting another link.",
                 null,
                 OffsetDateTime.now());
     }

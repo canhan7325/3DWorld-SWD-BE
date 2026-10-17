@@ -346,20 +346,6 @@ BEGIN
         (u[5],'EARNING_PENDING','Thu nhập demo đang chờ','269100 VND ở bucket PENDING.','SELLER_EARNING',sample_earning_id),
         (u[2],'PRINT_REQUEST','Yêu cầu in demo','Đã in xong, chờ thanh toán phần còn lại.','PRINT_REQUEST',print_id);
 
-    -- Historical token fixtures only: never queue an email for the demo domain.
-    INSERT INTO auth_email_tokens(token_id,user_id,recipient,purpose,token_hash,expires_at,used_at,
-        delivery_status,delivery_attempts,next_attempt_at,delivered_at,last_error,created_at)
-    VALUES
-        ('3d000000-0000-4000-8000-00000000d001',u[8],sample_emails[8],'VERIFY_EMAIL',
-         'b099b336e331a31f97d3b843e4870843cfc07254507901c5dde2722d0f4f2c4e',now()-interval '1 day',NULL,
-         'SENT',1,now()-interval '2 days',now()-interval '2 days',NULL,now()-interval '2 days'),
-        ('3d000000-0000-4000-8000-00000000d002',u[8],sample_emails[8],'VERIFY_EMAIL',
-         '48147a3d9524bf2dfd6a184d0fe87f7a387071b491dfc748f3acb22f91a69faa',now()-interval '1 day',NULL,
-         'FAILED',5,now()-interval '1 day',NULL,'DEMO_PROVIDER_FAILURE',now()-interval '2 days'),
-        ('3d000000-0000-4000-8000-00000000d003',u[7],sample_emails[7],'RESET_PASSWORD',
-         '673c3c2f0d96a9dd3d700e0bc041631267431d90dbb18dbdcdbf87e9773c2d70',now()-interval '12 hours',now()-interval '1 day',
-         'SENT',1,now()-interval '2 days',now()-interval '2 days',NULL,now()-interval '2 days');
-
     INSERT INTO platform_configs(config_key,config_value,updated_by_user_id,updated_at)
     VALUES('demo.commission.rate','0.10',u[1],now()),
         ('demo.subscription.fee','199000',u[1],now()),

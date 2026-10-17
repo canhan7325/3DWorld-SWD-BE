@@ -74,6 +74,16 @@ public class User {
         updatedAt = Instant.now();
     }
 
+    public void revokeSessions() {
+        updatedAt = Instant.now();
+    }
+
+    public void updateProfile(String fullName, String phone) {
+        this.fullName = fullName;
+        this.phone = phone;
+        updatedAt = Instant.now();
+    }
+
     public boolean isActive() {
         return accountStatus == AccountStatus.ACTIVE;
     }
