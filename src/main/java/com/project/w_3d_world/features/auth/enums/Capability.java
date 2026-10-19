@@ -1,0 +1,15 @@
+package com.project.w_3d_world.features.auth.enums;
+
+public enum Capability {
+    PROFILE_READ,
+    PROFILE_UPDATE,
+    ADDRESS_MANAGE,
+    BANK_ACCOUNT_MANAGE,
+    STOREFRONT_MANAGE_OWN,
+    CATALOG_PUBLISH,
+    ORDER_PROCESS_EXISTING,
+    USER_ROLE_MANAGE,
+    USER_STATUS_MANAGE,
+    REPORT_REVIEW,
+    PLATFORM_CONFIG_MANAGE
+}

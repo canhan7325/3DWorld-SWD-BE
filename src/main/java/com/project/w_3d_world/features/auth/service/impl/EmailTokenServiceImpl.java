@@ -1,44 +1,48 @@
 package com.project.w_3d_world.features.auth.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
-import com.project.w_3d_world.common.util.EmailTokenCodec;
-import com.project.w_3d_world.features.auth.entity.EmailToken;
-import com.project.w_3d_world.features.auth.enums.DeliveryStatus;
+import com.project.w_3d_world.common.service.EmailService;
+import com.project.w_3d_world.common.service.JwtService;
 import com.project.w_3d_world.features.auth.enums.TokenPurpose;
-import com.project.w_3d_world.features.auth.repository.EmailTokenRepository;
 import com.project.w_3d_world.features.auth.service.EmailTokenService;
+import com.project.w_3d_world.features.auth.service.AuthSessionService;
 import com.project.w_3d_world.features.user.entity.User;
 import com.project.w_3d_world.features.user.repository.UserRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class EmailTokenServiceImpl implements EmailTokenService {
     private final UserRepository userRepository;
-    private final EmailTokenRepository tokenRepository;
-    private final EmailTokenCodec tokenCodec;
+    private final JwtService jwtService;
+    private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
+    private final AuthSessionService sessionService;
 
     @Value("${app.auth.token-expiration}")
     private long expiration;
 
-    @Value("${app.auth.resend-cooldown-seconds}")
-    private long resendCooldown;
+    @Value("${app.auth.base-url}")
+    private String baseUrl;
 
     @Override
     @Transactional
     public void createVerification(User user) {
-        createToken(user, TokenPurpose.VERIFY_EMAIL);
+        sendLink(user, TokenPurpose.VERIFY_EMAIL);
     }
 
     @Override
@@ -52,29 +56,31 @@ public class EmailTokenServiceImpl implements EmailTokenService {
         if (purpose == TokenPurpose.VERIFY_EMAIL && user.isEmailVerified()) {
             return;
         }
-        if (tokenRepository.existsByUser_IdAndPurposeAndCreatedAtAfter(
-                user.getId(), purpose, Instant.now().minusSeconds(resendCooldown))) {
-            return;
-        }
-        createToken(user, purpose);
+        sendLink(user, purpose);
     }
 
-    private void createToken(User user, TokenPurpose purpose) {
-        if (expiration <= 0 || resendCooldown <= 0) {
-            throw new IllegalStateException(
-                    "Email token expiration and resend cooldown must be positive");
+    private void sendLink(User user, TokenPurpose purpose) {
+        if (expiration <= 0) {
+            throw new IllegalStateException("Email token expiration must be positive");
         }
-        tokenRepository.invalidateUnused(
-                user.getId(), purpose, Instant.now(), DeliveryStatus.CANCELLED);
-        String rawToken = tokenCodec.generate();
-        var token =
-                new EmailToken(
-                        user,
-                        purpose,
-                        tokenCodec.hash(rawToken),
-                        Instant.now().plusMillis(expiration));
-        tokenRepository.saveAndFlush(token);
-        token.setEncryptedToken(tokenCodec.encrypt(rawToken, token.getId().toString()));
+        user.revokeSessions();
+        userRepository.saveAndFlush(user);
+        String rawToken = jwtService.generateEmailToken(
+                user.getId(), user.getEmail(), purpose, expiration).getTokenValue();
+        String path = purpose == TokenPurpose.VERIFY_EMAIL ? "/verify-email" : "/reset-password";
+        String link = UriComponentsBuilder.fromUriString(baseUrl)
+                .path(path)
+                .queryParam("email", "{email}")
+                .queryParam("token", "{token}")
+                .encode().buildAndExpand(user.getEmail(), rawToken).toUriString();
+        try {
+            emailService.sendLink(user.getEmail(),
+                    purpose == TokenPurpose.VERIFY_EMAIL ? "Verify your email" : "Reset your password",
+                    "This link expires and can only be used once.", link);
+        } catch (RuntimeException exception) {
+            // No outbox table: keep the account unchanged and let the caller request a new link.
+            log.warn("Authentication email delivery failed for {}", user.getEmail(), exception);
+        }
     }
 
     @Override
@@ -88,33 +94,36 @@ public class EmailTokenServiceImpl implements EmailTokenService {
     @Transactional
     public void resetPassword(String email, String rawToken, String newPassword) {
         if (newPassword.getBytes(StandardCharsets.UTF_8).length > 72) {
-            throw ApiException.invalidRequest("Mật khẩu không được vượt quá 72 byte UTF-8.");
+            throw ApiException.invalidRequest("Password must not exceed 72 UTF-8 bytes.");
         }
         User user = consume(email, rawToken, TokenPurpose.RESET_PASSWORD);
         user.changePassword(passwordEncoder.encode(newPassword));
-        tokenRepository.invalidateUnused(
-                user.getId(), TokenPurpose.RESET_PASSWORD, Instant.now(), DeliveryStatus.CANCELLED);
+        sessionService.revokeAllSessions(user.getId());
     }
 
     private User consume(String email, String rawToken, TokenPurpose purpose) {
         String recipient = normalizeEmail(email);
         User user = userRepository.lockByNormalizedEmail(recipient).orElseThrow(this::invalidToken);
-        EmailToken token =
-                tokenRepository
-                        .lockByHash(tokenCodec.hash(rawToken), user.getId(), purpose)
-                        .orElseThrow(this::invalidToken);
-        if (!user.isActive()
-                || !token.getUser().getId().equals(user.getId())
-                || !token.canBeUsed(recipient, purpose)) {
+        Jwt token;
+        try {
+            token = jwtService.validateEmailToken(rawToken, purpose);
+            if (!Integer.toString(user.getId()).equals(token.getSubject())
+                    || !recipient.equalsIgnoreCase(token.getClaimAsString("email"))
+                    || (user.getUpdatedAt() != null && !token.getIssuedAt().isAfter(user.getUpdatedAt()))) {
+                throw invalidToken();
+            }
+        } catch (JwtException | IllegalArgumentException exception) {
             throw invalidToken();
         }
-        token.consume();
+        if (!user.isActive() || (purpose == TokenPurpose.VERIFY_EMAIL && user.isEmailVerified())) {
+            throw invalidToken();
+        }
         return user;
     }
 
     private ApiException invalidToken() {
         return ApiException.invalidRequest(
-                "Liên kết không hợp lệ, đã hết hạn hoặc đã được sử dụng.");
+                "The link is invalid, expired, or has already been used.");
     }
 
     private String normalizeEmail(String email) {

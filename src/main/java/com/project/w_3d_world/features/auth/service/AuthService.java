@@ -1,5 +1,7 @@
 package com.project.w_3d_world.features.auth.service;
 
+import com.project.w_3d_world.common.config.AuthenticatedUser;
+
 import com.project.w_3d_world.features.auth.dto.request.LoginRequest;
 import com.project.w_3d_world.features.auth.dto.request.RegisterRequest;
 import com.project.w_3d_world.features.auth.dto.response.LoginResponse;
@@ -11,4 +13,6 @@ public interface AuthService {
     LoginResponse login(LoginRequest request);
 
     UserResponse currentUser(int userId);
+
+    void logout(AuthenticatedUser user);
 }

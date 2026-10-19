@@ -1,6 +1,7 @@
 package com.project.w_3d_world.features.auth.dto.response;
 
 import com.project.w_3d_world.features.auth.entity.UserRole;
+import com.project.w_3d_world.features.auth.enums.Capability;
 import com.project.w_3d_world.features.user.entity.User;
 
 import java.util.Set;
@@ -12,8 +13,9 @@ public record UserResponse(
         String fullName,
         String phone,
         boolean emailVerified,
-        Set<String> roles) {
-    public static UserResponse from(User user) {
+        Set<String> roles,
+        Set<Capability> capabilities) {
+    public static UserResponse from(User user, Set<Capability> capabilities) {
         Set<String> roles = new TreeSet<>();
         user.getUserRoles().stream()
                 .filter(UserRole::isActive)
@@ -26,6 +28,7 @@ public record UserResponse(
                 user.getFullName(),
                 user.getPhone(),
                 user.isEmailVerified(),
-                roles);
+                roles,
+                capabilities);
     }
 }
