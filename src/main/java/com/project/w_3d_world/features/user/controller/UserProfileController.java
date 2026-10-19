@@ -6,6 +6,8 @@ import com.project.w_3d_world.features.user.dto.ProfileRequests.AddressRequest;
 import com.project.w_3d_world.features.user.dto.ProfileRequests.BankRequest;
 import com.project.w_3d_world.features.user.dto.ProfileRequests.UpdateProfileRequest;
 import com.project.w_3d_world.features.user.service.UserProfileService;
+import com.project.w_3d_world.features.user.service.AvatarService;
+import com.project.w_3d_world.features.auth.dto.response.UserResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,6 +24,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.MediaType;
 
 @RestController
 @RequestMapping("/api/users/me")
@@ -31,6 +36,19 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "User profile", description = "Manage the signed-in profile, addresses, and bank accounts.")
 public class UserProfileController {
     private final UserProfileService service;
+    private final AvatarService avatars;
+
+    @PostMapping(value = "/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(
+            summary = "Upload avatar",
+            description = "Upload a JPEG or PNG image (maximum 5 MB and 16 million pixels) "
+                    + "to the Cloudinary Avatar folder. Only the signed-in profile is updated. "
+                    + "Corrupt images are rejected and storage failures preserve the previous avatar.")
+    public ApiResponse<UserResponse> uploadAvatar(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestPart("file") MultipartFile file) {
+        return ApiResponse.success(avatars.upload(user.userId(), file));
+    }
 
     @PatchMapping
     @Operation(summary = "Update profile", description = "Update the signed-in user's name and phone number.")
