@@ -32,6 +32,12 @@ public class User {
     @Column(name = "full_name", nullable = false, length = 255)
     private String fullName;
 
+    @Column(name = "avatar_url", columnDefinition = "text")
+    private String avatarUrl;
+
+    @Column(name = "avatar_public_id", length = 255)
+    private String avatarPublicId;
+
     @Column(length = 30)
     private String phone;
 
@@ -86,5 +92,10 @@ public class User {
 
     public boolean isActive() {
         return accountStatus == AccountStatus.ACTIVE;
+    }
+
+    public void changeAvatar(String url, String publicId) {
+        avatarUrl = url;
+        avatarPublicId = publicId;
     }
 }
