@@ -25,8 +25,7 @@ public class OpenApiConfig {
                                 .title("3DWorld Authentication API")
                                 .version("v1")
                                 .description(
-                                        "Register and login first, then paste accessToken into"
-                                                + " Authorize to call /api/auth/me."))
+                                        "API Documentation for 3D World Project"))
                 .components(new Components().addSecuritySchemes("bearerAuth", bearerAuth))
                 .addSecurityItem(new SecurityRequirement().addList("bearerAuth"));
     }

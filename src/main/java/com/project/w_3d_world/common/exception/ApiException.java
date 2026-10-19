@@ -22,6 +22,10 @@ public class ApiException extends RuntimeException {
                 HttpStatus.UNAUTHORIZED, "Invalid credentials or account is unavailable.");
     }
 
+    public static ApiException invalidSession() {
+        return new ApiException(HttpStatus.UNAUTHORIZED, "Session is invalid, expired or revoked.");
+    }
+
     public static ApiException invalidRequest(String message) {
         return new ApiException(HttpStatus.BAD_REQUEST, message);
     }

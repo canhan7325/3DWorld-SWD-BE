@@ -1,6 +1,7 @@
 package com.project.w_3d_world.features.auth.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
+import com.project.w_3d_world.common.config.AuthenticatedUser;
 import com.project.w_3d_world.common.service.JwtService;
 import com.project.w_3d_world.features.auth.dto.request.LoginRequest;
 import com.project.w_3d_world.features.auth.dto.request.RegisterRequest;
@@ -11,6 +12,8 @@ import com.project.w_3d_world.features.auth.enums.RoleCode;
 import com.project.w_3d_world.features.auth.repository.RoleRepository;
 import com.project.w_3d_world.features.auth.repository.UserRoleRepository;
 import com.project.w_3d_world.features.auth.service.AuthService;
+import com.project.w_3d_world.features.auth.service.AuthSessionService;
+import com.project.w_3d_world.features.auth.service.CapabilityService;
 import com.project.w_3d_world.features.auth.service.EmailTokenService;
 import com.project.w_3d_world.features.user.entity.User;
 import com.project.w_3d_world.features.user.repository.UserRepository;
@@ -33,6 +36,8 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final EmailTokenService emailTokenService;
+    private final AuthSessionService sessionService;
+    private final CapabilityService capabilityService;
 
     @Override
     @Transactional
@@ -64,28 +69,29 @@ public class AuthServiceImpl implements AuthService {
         userRoleRepository.saveAndFlush(userRole);
         user.getUserRoles().add(userRole);
         emailTokenService.createVerification(user);
-        return UserResponse.from(user);
+        return buildUserResponse(user);
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public LoginResponse login(LoginRequest request) {
         if (request.password().getBytes(StandardCharsets.UTF_8).length > 72) {
             throw ApiException.invalidCredentials();
         }
         User user =
                 userRepository
-                        .findByNormalizedEmail(normalizeEmail(request.email()))
+                        .lockByNormalizedEmail(normalizeEmail(request.email()))
                         .orElseThrow(ApiException::invalidCredentials);
         if (!user.isActive()
                 || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw ApiException.invalidCredentials();
         }
 
-        UserResponse response = UserResponse.from(user);
+        UserResponse response = buildUserResponse(user);
         var token =
                 jwtService.generateToken(
                         response.userId(), response.roles(), response.phone(), response.email());
+        sessionService.createSession(user, token);
         return new LoginResponse(token.getTokenValue(), "Bearer", token.getExpiresAt(), response);
     }
 
@@ -97,7 +103,17 @@ public class AuthServiceImpl implements AuthService {
                         .findWithRolesById(userId)
                         .filter(User::isActive)
                         .orElseThrow(ApiException::invalidCredentials);
-        return UserResponse.from(user);
+        return buildUserResponse(user);
+    }
+
+    @Override
+    @Transactional
+    public void logout(AuthenticatedUser user) {
+        sessionService.revokeSession(user.userId(), user.sessionId());
+    }
+
+    private UserResponse buildUserResponse(User user) {
+        return UserResponse.from(user, capabilityService.getCapabilities(user));
     }
 
     private String normalizeEmail(String email) {

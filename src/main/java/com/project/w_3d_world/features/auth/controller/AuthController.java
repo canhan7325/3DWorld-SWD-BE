@@ -15,12 +15,14 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import jakarta.validation.Valid;
+import java.time.OffsetDateTime;
 
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -36,7 +38,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<UserResponse>> register(
             @Valid @RequestBody RegisterRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.created("Đăng ký thành công", authService.register(request)));
+                .body(ApiResponse.created("Registration successful", authService.register(request)));
     }
 
     @PostMapping("/login")
@@ -46,7 +48,18 @@ public class AuthController {
         return ApiResponse.success(authService.login(request));
     }
 
+    @PostMapping("/logout")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Logout and revoke the current JWT session")
+    @SecurityRequirement(name = "bearerAuth")
+    public ApiResponse<Void> logout(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user) {
+        authService.logout(user);
+        return new ApiResponse<>(200, "Logged out successfully.", null, OffsetDateTime.now());
+    }
+
     @GetMapping("/me")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get the current account")
     @SecurityRequirement(name = "bearerAuth")
     public ApiResponse<UserResponse> me(

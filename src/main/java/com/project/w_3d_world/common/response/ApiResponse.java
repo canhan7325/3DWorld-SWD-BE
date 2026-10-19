@@ -4,7 +4,7 @@ import java.time.OffsetDateTime;
 
 public record ApiResponse<T>(int status, String message, T data, OffsetDateTime timestamp) {
     public static <T> ApiResponse<T> success(T data) {
-        return new ApiResponse<>(200, "Thành công", data, OffsetDateTime.now());
+        return new ApiResponse<>(200, "Success", data, OffsetDateTime.now());
     }
 
     public static <T> ApiResponse<T> created(String message, T data) {

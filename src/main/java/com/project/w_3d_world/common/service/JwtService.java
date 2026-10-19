@@ -12,6 +12,8 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
+import com.project.w_3d_world.features.auth.enums.TokenPurpose;
 
 import javax.crypto.spec.SecretKeySpec;
 
@@ -39,10 +41,13 @@ public class JwtService {
     }
 
     public Jwt generateToken(int userId, Set<String> roles, String phone, String email) {
+        Instant issuedAt = Instant.now();
         var claims =
                 JwtClaimsSet.builder()
+                        .id(UUID.randomUUID().toString())
+                        .issuedAt(issuedAt)
                         .subject(Integer.toString(userId))
-                        .expiresAt(Instant.now().plusMillis(expiration))
+                        .expiresAt(issuedAt.plusMillis(expiration))
                         .claim("userId", userId)
                         .claim("roles", new ArrayList<>(roles))
                         .claim("phone", Objects.requireNonNullElse(phone, ""))
@@ -56,6 +61,29 @@ public class JwtService {
         Jwt jwt = decoder.decode(token);
         if (jwt.getExpiresAt() == null) {
             throw new JwtException("Token expiration is required.");
+        }
+        return jwt;
+    }
+
+    public Jwt generateEmailToken(int userId, String email, TokenPurpose purpose, long ttlMillis) {
+        Instant issuedAt = Instant.now();
+        var claims = JwtClaimsSet.builder()
+                .id(UUID.randomUUID().toString())
+                .issuedAt(issuedAt)
+                .subject(Integer.toString(userId))
+                .expiresAt(issuedAt.plusMillis(ttlMillis))
+                .claim("email", email)
+                .claim("purpose", purpose.name())
+                .build();
+        return encoder.encode(JwtEncoderParameters.from(
+                JwsHeader.with(MacAlgorithm.HS256).build(), claims));
+    }
+
+    public Jwt validateEmailToken(String token, TokenPurpose purpose) {
+        Jwt jwt = validateToken(token);
+        if (!purpose.name().equals(jwt.getClaimAsString("purpose"))
+                || jwt.getSubject() == null || jwt.getClaimAsString("email") == null) {
+            throw new JwtException("Invalid email token purpose.");
         }
         return jwt;
     }
