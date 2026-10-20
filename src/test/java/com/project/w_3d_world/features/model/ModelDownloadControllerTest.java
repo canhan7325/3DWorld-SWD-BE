@@ -11,6 +11,7 @@ import com.project.w_3d_world.features.model.dto.response.ModelUploadResponse;
 import com.project.w_3d_world.features.model.dto.response.PagedModelResponse;
 import com.project.w_3d_world.features.model.dto.response.ModelDetailResponse;
 import com.project.w_3d_world.common.service.JwtService;
+import com.project.w_3d_world.features.auth.service.AuthSessionService;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +52,7 @@ class ModelDownloadControllerTest {
     @Test void mvcDl12_storageFailure500Controlled() throws Exception { when(service.openAuthorizedDownload(7,10,301)).thenThrow(new com.project.w_3d_world.common.exception.ApiException(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR, "The model file is temporarily unavailable.")); mvc.perform(get("/api/models/10/files/301/download").header("Authorization", token)).andExpect(status().isInternalServerError()); }
     @Test void mvcDl16_existingRoutesNoConflict() throws Exception { when(library.getMyModels(7,0,20)).thenReturn(new PagedModelResponse(List.of(),0,20,0,0)); mvc.perform(get("/api/models/my").header("Authorization", token)).andExpect(status().isOk()).andExpect(handler().handlerType(ModelLibraryController.class)); verifyNoInteractions(service); }
     @Configuration @EnableWebMvc @EnableWebSecurity @Import({SecurityConfig.class, ModelDownloadController.class, ModelLibraryController.class, ModelUploadController.class, ModelUploadExceptionHandler.class, GlobalExceptionHandler.class}) static class Config implements WebMvcConfigurer {
+        @Bean AuthSessionService authSessionService() { return mock(AuthSessionService.class); }
         @Bean ModelDownloadService service() { return mock(ModelDownloadService.class); } @Bean ModelLibraryService library() { return mock(ModelLibraryService.class); } @Bean ModelUploadService upload() { return mock(ModelUploadService.class); } @Bean JsonMapper mapper() { return JsonMapper.builder().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build(); } @Bean JwtService jwt() { byte[] secret = new byte[32]; new SecureRandom().nextBytes(secret); return new JwtService(Base64.getEncoder().encodeToString(secret),60000); } @Override public void configureMessageConverters(HttpMessageConverters.ServerBuilder builder) { builder.withJsonConverter(new JacksonJsonHttpMessageConverter(mapper())); }
     }
 }

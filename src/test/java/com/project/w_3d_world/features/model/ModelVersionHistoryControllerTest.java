@@ -3,6 +3,7 @@ package com.project.w_3d_world.features.model;
 import com.project.w_3d_world.common.config.SecurityConfig;
 import com.project.w_3d_world.common.exception.GlobalExceptionHandler;
 import com.project.w_3d_world.common.service.JwtService;
+import com.project.w_3d_world.features.auth.service.AuthSessionService;
 import com.project.w_3d_world.features.model.controller.*;
 import com.project.w_3d_world.features.model.dto.response.*;
 import com.project.w_3d_world.features.model.enums.*;
@@ -93,6 +94,7 @@ class ModelVersionHistoryControllerTest {
     @Configuration @EnableWebMvc @EnableWebSecurity
     @Import({SecurityConfig.class, ModelVersionHistoryController.class, ModelLibraryController.class, ModelUploadController.class, ModelUploadExceptionHandler.class, GlobalExceptionHandler.class})
     static class Config implements WebMvcConfigurer {
+        @Bean AuthSessionService authSessionService() { return mock(AuthSessionService.class); }
         @Bean ModelVersionHistoryService service() { return mock(ModelVersionHistoryService.class); }
         @Bean ModelLibraryService library() { return mock(ModelLibraryService.class); }
         @Bean ModelUploadService upload() { return mock(ModelUploadService.class); }

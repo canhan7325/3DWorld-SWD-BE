@@ -3,6 +3,7 @@ package com.project.w_3d_world.features.model;
 import com.project.w_3d_world.common.config.SecurityConfig;
 import com.project.w_3d_world.common.exception.GlobalExceptionHandler;
 import com.project.w_3d_world.common.service.JwtService;
+import com.project.w_3d_world.features.auth.service.AuthSessionService;
 import com.project.w_3d_world.features.model.controller.*;
 import com.project.w_3d_world.features.model.dto.request.CreateModelRequest;
 import com.project.w_3d_world.features.model.dto.response.ModelUploadResponse;
@@ -210,6 +211,7 @@ class ModelUploadControllerTest {
     @EnableWebSecurity
     @Import({SecurityConfig.class, ModelUploadController.class, ModelUploadExceptionHandler.class, GlobalExceptionHandler.class})
     static class Config implements WebMvcConfigurer {
+        @Bean AuthSessionService authSessionService() { return mock(AuthSessionService.class); }
         @Bean ModelUploadService service() { return mock(ModelUploadService.class); }
         @Bean JsonMapper mapper() {
             return JsonMapper.builder().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();

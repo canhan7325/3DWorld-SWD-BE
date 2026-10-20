@@ -3,6 +3,7 @@ package com.project.w_3d_world.features.model;
 import com.project.w_3d_world.common.config.SecurityConfig;
 import com.project.w_3d_world.common.exception.GlobalExceptionHandler;
 import com.project.w_3d_world.common.service.JwtService;
+import com.project.w_3d_world.features.auth.service.AuthSessionService;
 import com.project.w_3d_world.features.model.controller.*;
 import com.project.w_3d_world.features.model.dto.response.*;
 import com.project.w_3d_world.features.model.enums.*;
@@ -45,13 +46,14 @@ class ModelLibraryControllerTest {
     @Autowired WebApplicationContext context;
     @Autowired ModelLibraryService service;
     @Autowired JwtService jwt;
+    @Autowired AuthSessionService sessionService;
     @Autowired ModelUploadService uploadService;
     MockMvc mvc;
     String token;
 
     @BeforeEach
     void setup() {
-        reset(service, uploadService);
+        reset(service, uploadService, sessionService);
         mvc = webAppContextSetup(context).apply(springSecurity()).build();
         token = "Bearer " + jwt.generateToken(7, Set.of("CUSTOMER"), "", "unit@example.invalid").getTokenValue();
         when(service.getMyModels(anyInt(), anyInt(), anyInt())).thenReturn(
@@ -84,6 +86,16 @@ class ModelLibraryControllerTest {
     void mvc03_invalidJwt401() throws Exception {
         mvc.perform(get("/api/models/my").header("Authorization", "Bearer invalid"))
                 .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.status").value(401));
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void validJwtWithRevokedSessionIsRejected() throws Exception {
+        doThrow(com.project.w_3d_world.common.exception.ApiException.invalidSession())
+                .when(sessionService).validateSession(eq(7), any(java.util.UUID.class), any(java.time.Instant.class));
+        mvc.perform(get("/api/models/my").header("Authorization", token))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.status").value(401));
+        verify(sessionService).validateSession(eq(7), any(java.util.UUID.class), any(java.time.Instant.class));
         verifyNoInteractions(service);
     }
 
@@ -171,6 +183,7 @@ class ModelLibraryControllerTest {
     @Import({SecurityConfig.class, ModelLibraryController.class, ModelUploadController.class,
             ModelUploadExceptionHandler.class, GlobalExceptionHandler.class})
     static class Config implements WebMvcConfigurer {
+        @Bean AuthSessionService authSessionService() { return mock(AuthSessionService.class); }
         @Bean ModelLibraryService libraryService() { return mock(ModelLibraryService.class); }
         @Bean ModelUploadService uploadService() { return mock(ModelUploadService.class); }
         @Bean JsonMapper mapper() { return JsonMapper.builder().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build(); }
