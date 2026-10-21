@@ -6,6 +6,7 @@ import com.project.w_3d_world.features.printing.dto.response.PrintMaterialRespon
 import com.project.w_3d_world.features.printing.entity.PrintMaterial;
 import com.project.w_3d_world.features.printing.repository.PrintMaterialRepository;
 import com.project.w_3d_world.features.printing.service.PrintMaterialService;
+import com.project.w_3d_world.features.printing.validation.PrintMaterialServiceValidation;
 
 import lombok.RequiredArgsConstructor;
 
@@ -27,12 +28,8 @@ public class PrintMaterialServiceImpl implements PrintMaterialService {
 
     @Override
     public PagedPrintMaterialResponse getActiveMaterials(String technologyCode, int page, int size) {
-        if (page < 0) throw ApiException.invalidRequest("Page must be greater than or equal to 0.");
-        if (size < 1 || size > 50) throw ApiException.invalidRequest("Page size must be between 1 and 50.");
-        if (technologyCode != null && (technologyCode.isBlank() || technologyCode.length() > 30
-                || !technologyCode.equals(technologyCode.strip()))) {
-            throw ApiException.invalidRequest("Technology code must have 1 to 30 characters without surrounding whitespace.");
-        }
+        PrintMaterialServiceValidation.validatePage(page, size);
+        PrintMaterialServiceValidation.validateTechnologyFilter(technologyCode);
 
         var pageable = PageRequest.of(page, size, CATALOG_SORT);
         Page<PrintMaterial> materials = technologyCode == null
@@ -45,9 +42,7 @@ public class PrintMaterialServiceImpl implements PrintMaterialService {
 
     @Override
     public PrintMaterialResponse getActiveMaterialById(Integer materialId) {
-        if (materialId == null || materialId <= 0) {
-            throw ApiException.invalidRequest("Material ID must be a positive integer.");
-        }
+        PrintMaterialServiceValidation.validateMaterialId(materialId);
         PrintMaterial material = repository.findById(materialId)
                 .filter(candidate -> Boolean.TRUE.equals(candidate.getIsActive()))
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Material was not found."));

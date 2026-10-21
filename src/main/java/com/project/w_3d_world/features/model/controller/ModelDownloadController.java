@@ -4,6 +4,7 @@ import com.project.w_3d_world.common.config.AuthenticatedUser;
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.model.download.AuthorizedModelDownload;
 import com.project.w_3d_world.features.model.service.ModelDownloadService;
+import com.project.w_3d_world.features.model.validation.ModelRequestValidation;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -39,11 +40,11 @@ public class ModelDownloadController {
             @PathVariable String modelId,
             @PathVariable String fileId,
             HttpServletResponse response) {
-        if (user == null) throw new ApiException(HttpStatus.UNAUTHORIZED, "Authentication is required.");
-        int parsedModelId = parsePositive(modelId, "Model ID");
-        int parsedFileId = parsePositive(fileId, "File ID");
+        int userId = ModelRequestValidation.requireUserId(user);
+        int parsedModelId = ModelRequestValidation.parseDownloadId(modelId, "Model ID");
+        int parsedFileId = ModelRequestValidation.parseDownloadId(fileId, "File ID");
         AuthorizedModelDownload download = downloadService.openAuthorizedDownload(
-                user.userId(), parsedModelId, parsedFileId);
+                userId, parsedModelId, parsedFileId);
         try (download) {
             response.setStatus(HttpStatus.OK.value());
             response.setContentType(download.contentType());
@@ -69,11 +70,4 @@ public class ModelDownloadController {
         }
     }
 
-    private static int parsePositive(String value, String name) {
-        try {
-            int parsed = Integer.parseInt(value);
-            if (parsed > 0) return parsed;
-        } catch (NumberFormatException ignored) { }
-        throw ApiException.invalidRequest(name + " must be a positive integer.");
-    }
 }

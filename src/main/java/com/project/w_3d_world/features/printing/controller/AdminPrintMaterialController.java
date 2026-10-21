@@ -1,19 +1,36 @@
 package com.project.w_3d_world.features.printing.controller;
 
-import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.common.response.ApiResponse;
+import com.project.w_3d_world.common.config.AuthenticatedUser;
+import com.project.w_3d_world.features.printing.dto.request.CreatePrintMaterialRequest;
+import com.project.w_3d_world.features.printing.dto.request.UpdatePrintMaterialCostRequest;
+import com.project.w_3d_world.features.printing.dto.request.UpdatePrintMaterialStatusRequest;
+import com.project.w_3d_world.features.printing.dto.response.AdminPrintMaterialResponse;
 import com.project.w_3d_world.features.printing.dto.response.PagedAdminPrintMaterialResponse;
 import com.project.w_3d_world.features.printing.service.AdminPrintMaterialService;
+import com.project.w_3d_world.features.printing.validation.PrintMaterialRequestValidation;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.dao.DataAccessException;
+import org.springframework.transaction.TransactionException;
+import jakarta.persistence.PersistenceException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.JsonNode;
 
 @RestController
 @RequestMapping("/api/admin/print/materials")
@@ -24,41 +41,55 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminPrintMaterialController {
     private final AdminPrintMaterialService service;
 
-    @GetMapping
+    @GetMapping("/getAll")
     @Operation(summary = "List all print materials for administrators")
     public ApiResponse<PagedAdminPrintMaterialResponse> list(
             @RequestParam(required = false) String technologyCode,
             @RequestParam(required = false) String isActive,
             @RequestParam(defaultValue = "0") String page,
             @RequestParam(defaultValue = "20") String size) {
-        int pageNumber = parseInteger(page, "page");
-        int pageSize = parseInteger(size, "size");
-        if (pageNumber < 0) throw ApiException.invalidRequest("Page must be greater than or equal to 0.");
-        if (pageSize < 1 || pageSize > 50) throw ApiException.invalidRequest("Page size must be between 1 and 50.");
+        int pageNumber = PrintMaterialRequestValidation.parsePage(page);
+        int pageSize = PrintMaterialRequestValidation.parsePageSize(size);
         return ApiResponse.success(service.getMaterials(
-                validateTechnology(technologyCode), parseActive(isActive),
+                PrintMaterialRequestValidation.validateTechnology(technologyCode),
+                PrintMaterialRequestValidation.parseActive(isActive),
                 pageNumber, pageSize));
     }
 
-    private static String validateTechnology(String technologyCode) {
-        if (technologyCode != null && (technologyCode.isBlank() || technologyCode.length() > 30
-                || !technologyCode.equals(technologyCode.strip()))) {
-            throw ApiException.invalidRequest("Technology code must have 1 to 30 characters without surrounding whitespace.");
-        }
-        return technologyCode;
+    @PostMapping("/create")
+    @Operation(summary = "Create a print material")
+    public ResponseEntity<ApiResponse<AdminPrintMaterialResponse>> create(
+            @AuthenticationPrincipal AuthenticatedUser admin, @RequestBody JsonNode body) {
+        AdminPrintMaterialResponse created = service.create(PrintMaterialRequestValidation.requireAdminId(admin),
+                CreatePrintMaterialRequest.from(body));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.created("Material created successfully", created));
     }
 
-    private static Boolean parseActive(String value) {
-        if (value == null) return null;
-        if ("true".equals(value)) return Boolean.TRUE;
-        if ("false".equals(value)) return Boolean.FALSE;
-        throw ApiException.invalidRequest("isActive must be true or false.");
+    @PatchMapping("/update/{materialId}")
+    @Operation(summary = "Update a material's estimated cost")
+    public ApiResponse<AdminPrintMaterialResponse> updateCost(
+            @AuthenticationPrincipal AuthenticatedUser admin,
+            @PathVariable String materialId, @RequestBody JsonNode body) {
+        return ApiResponse.success(service.updateCost(PrintMaterialRequestValidation.requireAdminId(admin),
+                PrintMaterialRequestValidation.parseMaterialId(materialId),
+                UpdatePrintMaterialCostRequest.from(body)));
     }
 
-    private static int parseInteger(String value, String name) {
-        try { return Integer.parseInt(value); }
-        catch (NumberFormatException exception) {
-            throw ApiException.invalidRequest(name + " must be a valid integer.");
-        }
+    @PatchMapping("/updateStatus/{materialId}")
+    @Operation(summary = "Activate or deactivate a print material")
+    public ApiResponse<AdminPrintMaterialResponse> updateStatus(
+            @AuthenticationPrincipal AuthenticatedUser admin,
+            @PathVariable String materialId, @RequestBody JsonNode body) {
+        return ApiResponse.success(service.updateStatus(PrintMaterialRequestValidation.requireAdminId(admin),
+                PrintMaterialRequestValidation.parseMaterialId(materialId),
+                UpdatePrintMaterialStatusRequest.from(body)));
     }
+
+    @ExceptionHandler({DataAccessException.class, TransactionException.class, PersistenceException.class})
+    public ResponseEntity<ApiResponse<Void>> persistenceFailure(RuntimeException exception) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error(500, "Material change could not be completed."));
+    }
+
 }

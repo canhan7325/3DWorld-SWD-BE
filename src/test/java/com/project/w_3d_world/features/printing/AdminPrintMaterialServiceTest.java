@@ -4,6 +4,14 @@ import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.printing.entity.PrintMaterial;
 import com.project.w_3d_world.features.printing.repository.PrintMaterialRepository;
 import com.project.w_3d_world.features.printing.service.impl.AdminPrintMaterialServiceImpl;
+import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
+import com.project.w_3d_world.features.audit.entity.AuditLog;
+import com.project.w_3d_world.features.printing.dto.request.CreatePrintMaterialRequest;
+import com.project.w_3d_world.features.printing.dto.request.UpdatePrintMaterialCostRequest;
+import com.project.w_3d_world.features.printing.dto.request.UpdatePrintMaterialStatusRequest;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
+import tools.jackson.databind.json.JsonMapper;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,6 +24,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -23,12 +32,22 @@ import static org.mockito.Mockito.*;
 
 class AdminPrintMaterialServiceTest {
     private PrintMaterialRepository repository;
+    private AuditLogRepository auditLogs;
+    private EntityManager entityManager;
+    private Query advisoryQuery;
     private AdminPrintMaterialServiceImpl service;
 
     @BeforeEach
     void setUp() {
         repository = mock(PrintMaterialRepository.class);
-        service = new AdminPrintMaterialServiceImpl(repository);
+        auditLogs = mock(AuditLogRepository.class);
+        entityManager = mock(EntityManager.class);
+        advisoryQuery = mock(Query.class);
+        when(entityManager.createNativeQuery("SELECT pg_advisory_xact_lock(?1, ?2)"))
+                .thenReturn(advisoryQuery);
+        when(advisoryQuery.setParameter(anyInt(), anyInt())).thenReturn(advisoryQuery);
+        service = new AdminPrintMaterialServiceImpl(repository,
+                auditLogs, entityManager, JsonMapper.builder().build());
     }
 
     @Test
@@ -92,6 +111,186 @@ class AdminPrintMaterialServiceTest {
         var result = service.getMaterials(null, null, 0, 20);
         assertNull(result.content().getFirst().unit()); assertNull(result.content().getFirst().estimatedUnitCost());
         verify(repository, never()).save(any()); verify(repository, never()).delete(any()); verify(repository, never()).flush();
+    }
+
+    @Test
+    void createCanonicalMaterialLocksBeforeDuplicateCheckAndAuditsGeneratedId() {
+        when(repository.saveAndFlush(any())).thenAnswer(call -> {
+            PrintMaterial material = call.getArgument(0);
+            ReflectionTestUtils.setField(material, "materialId", 42);
+            return material;
+        });
+        var response = service.create(7,
+                new CreatePrintMaterialRequest(" pla ", "fdm", "gram", new BigDecimal("350.00")));
+        assertEquals(42, response.materialId());
+        assertEquals("PLA", response.materialName());
+        assertEquals("FDM", response.technologyCode());
+        assertEquals("GRAM", response.unit());
+        assertTrue(response.isActive());
+        var order = inOrder(entityManager, advisoryQuery, repository, auditLogs);
+        order.verify(entityManager).createNativeQuery("SELECT pg_advisory_xact_lock(?1, ?2)");
+        order.verify(advisoryQuery).getSingleResult();
+        order.verify(repository).existsActiveIdentity("pla", "FDM");
+        order.verify(repository).saveAndFlush(any(PrintMaterial.class));
+        var audit = org.mockito.ArgumentCaptor.forClass(AuditLog.class);
+        order.verify(auditLogs).saveAndFlush(audit.capture());
+        assertEquals(42, audit.getValue().getEntityId());
+        assertEquals(7, audit.getValue().getActorUserId());
+        assertEquals("MATERIAL_CREATED", audit.getValue().getActionType());
+        assertTrue(audit.getValue().getMetadata().contains("\"estimatedUnitCost\":350.00"));
+    }
+
+    @Test
+    void approvedPairsAndNullableCostCreateSuccessfully() {
+        when(repository.saveAndFlush(any())).thenAnswer(call -> {
+            PrintMaterial material = call.getArgument(0);
+            ReflectionTestUtils.setField(material, "materialId", 42);
+            return material;
+        });
+        for (String name : List.of("PETG", "ABS")) {
+            assertDoesNotThrow(() -> service.create(7,
+                    new CreatePrintMaterialRequest(name, "FDM", "GRAM", null)));
+        }
+        assertDoesNotThrow(() -> service.create(7,
+                new CreatePrintMaterialRequest("Standard Resin", "SLA", "ML", null)));
+        verify(repository, times(3)).saveAndFlush(any(PrintMaterial.class));
+    }
+
+    @Test
+    void invalidCatalogOrCostIsRejectedBeforeAnyWrite() {
+        for (CreatePrintMaterialRequest request : List.of(
+                new CreatePrintMaterialRequest("PLA", "SLA", "ML", null),
+                new CreatePrintMaterialRequest("Standard Resin", "FDM", "GRAM", null),
+                new CreatePrintMaterialRequest("PLA", "DLP", "GRAM", null),
+                new CreatePrintMaterialRequest("", "FDM", "GRAM", null),
+                new CreatePrintMaterialRequest("PLA", "FDM", "ML", null),
+                new CreatePrintMaterialRequest("PLA", "FDM", "GRAM", new BigDecimal("-1")),
+                new CreatePrintMaterialRequest("PLA", "FDM", "GRAM", new BigDecimal("10.123")),
+                new CreatePrintMaterialRequest("PLA", "FDM", "GRAM", new BigDecimal("12345678901234567.00")))) {
+            assertThrows(com.project.w_3d_world.common.exception.ApiException.class,
+                    () -> service.create(7, request));
+        }
+        verify(repository, never()).saveAndFlush(any());
+        verifyNoInteractions(auditLogs);
+    }
+
+    @Test
+    void zeroWithNegativeScaleStillFitsNumericColumn() {
+        when(repository.saveAndFlush(any())).thenAnswer(call -> {
+            PrintMaterial material = call.getArgument(0);
+            ReflectionTestUtils.setField(material, "materialId", 42);
+            return material;
+        });
+        assertDoesNotThrow(() -> service.create(7,
+                new CreatePrintMaterialRequest("PLA", "FDM", "GRAM", new BigDecimal("0E+18"))));
+    }
+
+    @Test
+    void activeDuplicateReturnsConflictBeforePersistence() {
+        when(repository.existsActiveIdentity("pla", "FDM")).thenReturn(true);
+        var error = assertThrows(com.project.w_3d_world.common.exception.ApiException.class,
+                () -> service.create(7, new CreatePrintMaterialRequest("PLA", "FDM", "GRAM", null)));
+        assertEquals(409, error.getStatus().value());
+        verify(repository, never()).saveAndFlush(any());
+        verifyNoInteractions(auditLogs);
+    }
+
+    @Test
+    void costUpdateUsesRowLockAndAuditsOnlyNumericalChange() {
+        var material = material(42, true);
+        when(repository.findByIdForUpdate(42)).thenReturn(Optional.of(material));
+        service.updateCost(7, 42, new UpdatePrintMaterialCostRequest(new BigDecimal("350.0")));
+        verify(repository, never()).saveAndFlush(any());
+        verifyNoInteractions(auditLogs);
+
+        var response = service.updateCost(7, 42, new UpdatePrintMaterialCostRequest(null));
+        assertNull(response.estimatedUnitCost());
+        var order = inOrder(repository, auditLogs);
+        order.verify(repository, times(2)).findByIdForUpdate(42);
+        order.verify(repository).saveAndFlush(material);
+        var audit = org.mockito.ArgumentCaptor.forClass(AuditLog.class);
+        order.verify(auditLogs).saveAndFlush(audit.capture());
+        assertEquals("MATERIAL_COST_UPDATED", audit.getValue().getActionType());
+        assertTrue(audit.getValue().getMetadata().contains("\"estimatedUnitCost\":null"));
+    }
+
+    @Test
+    void reactivationUsesSameAdvisoryLockBeforeRowAndDuplicateCheck() {
+        var material = material(42, false);
+        when(repository.findByIdForUpdate(42)).thenReturn(Optional.of(material));
+        var response = service.updateStatus(7, 42, new UpdatePrintMaterialStatusRequest(true));
+        assertTrue(response.isActive());
+        var order = inOrder(entityManager, advisoryQuery, repository, auditLogs);
+        order.verify(entityManager).createNativeQuery("SELECT pg_advisory_xact_lock(?1, ?2)");
+        order.verify(advisoryQuery).getSingleResult();
+        order.verify(repository).findByIdForUpdate(42);
+        order.verify(repository).existsOtherActiveIdentity(42, "pla", "FDM");
+        order.verify(repository).saveAndFlush(material);
+        order.verify(auditLogs).saveAndFlush(any(AuditLog.class));
+    }
+
+    @Test
+    void duplicateReactivationConflictsAndStatusNoOpDoesNotAudit() {
+        var material = material(42, false);
+        when(repository.findByIdForUpdate(42)).thenReturn(Optional.of(material));
+        service.updateStatus(7, 42, new UpdatePrintMaterialStatusRequest(false));
+        verify(repository, never()).saveAndFlush(any());
+        when(repository.existsOtherActiveIdentity(42, "pla", "FDM")).thenReturn(true);
+        var error = assertThrows(com.project.w_3d_world.common.exception.ApiException.class,
+                () -> service.updateStatus(7, 42, new UpdatePrintMaterialStatusRequest(true)));
+        assertEquals(409, error.getStatus().value());
+        assertFalse(material.getIsActive());
+        verifyNoInteractions(auditLogs);
+    }
+
+    @Test
+    void deactivationChangesStatusAndAuditsOnlyOnce() {
+        var material = material(42, true);
+        when(repository.findByIdForUpdate(42)).thenReturn(Optional.of(material));
+        assertFalse(service.updateStatus(7, 42, new UpdatePrintMaterialStatusRequest(false)).isActive());
+        assertFalse(service.updateStatus(7, 42, new UpdatePrintMaterialStatusRequest(false)).isActive());
+        verify(repository).saveAndFlush(material);
+        var audit = org.mockito.ArgumentCaptor.forClass(AuditLog.class);
+        verify(auditLogs).saveAndFlush(audit.capture());
+        assertEquals("MATERIAL_DEACTIVATED", audit.getValue().getActionType());
+        assertTrue(audit.getValue().getMetadata().contains("\"isActive\":false"));
+        verify(repository, never()).delete(any());
+    }
+
+    @Test
+    void legacyIdentityCannotBeSilentlyRewrittenOnReactivation() {
+        var material = material(42, false);
+        ReflectionTestUtils.setField(material, "unit", null);
+        when(repository.findByIdForUpdate(42)).thenReturn(Optional.of(material));
+        assertThrows(com.project.w_3d_world.common.exception.ApiException.class,
+                () -> service.updateStatus(7, 42, new UpdatePrintMaterialStatusRequest(true)));
+        assertFalse(material.getIsActive());
+        verify(repository, never()).saveAndFlush(any());
+        verifyNoInteractions(auditLogs);
+    }
+
+    @Test
+    void missingMaterialAndInvalidStatusAreControlled() {
+        assertEquals(404, assertThrows(com.project.w_3d_world.common.exception.ApiException.class,
+                () -> service.updateCost(7, 99, new UpdatePrintMaterialCostRequest(null)))
+                .getStatus().value());
+        assertEquals(400, assertThrows(com.project.w_3d_world.common.exception.ApiException.class,
+                () -> service.updateStatus(7, 99, new UpdatePrintMaterialStatusRequest(null)))
+                .getStatus().value());
+        verify(repository, never()).saveAndFlush(any());
+        verifyNoInteractions(auditLogs);
+    }
+
+    @Test
+    void auditFailureIsPropagated() {
+        when(repository.saveAndFlush(any())).thenAnswer(call -> {
+            PrintMaterial material = call.getArgument(0);
+            ReflectionTestUtils.setField(material, "materialId", 42);
+            return material;
+        });
+        doThrow(new IllegalStateException("audit unavailable")).when(auditLogs).saveAndFlush(any());
+        assertThrows(IllegalStateException.class, () -> service.create(7,
+                new CreatePrintMaterialRequest("PLA", "FDM", "GRAM", null)));
     }
 
     private static PrintMaterial material(int id, boolean active) {

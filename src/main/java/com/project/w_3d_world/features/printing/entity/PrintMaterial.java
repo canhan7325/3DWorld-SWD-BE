@@ -58,4 +58,16 @@ public class PrintMaterial {
             BigDecimal estimatedUnitCost) {
         this(materialName, technologyCode, unit, estimatedUnitCost, Boolean.TRUE);
     }
+
+    public void changeEstimatedUnitCost(BigDecimal estimatedUnitCost) {
+        this.estimatedUnitCost = estimatedUnitCost;
+    }
+
+    public void activate() {
+        this.isActive = Boolean.TRUE;
+    }
+
+    public void deactivate() {
+        this.isActive = Boolean.FALSE;
+    }
 }

@@ -1,6 +1,5 @@
 package com.project.w_3d_world.features.model.service.impl;
 
-import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.model.dto.request.CreateModelRequest;
 import com.project.w_3d_world.features.model.dto.response.ModelUploadResponse;
 import com.project.w_3d_world.features.model.entity.Model3D;
@@ -17,6 +16,7 @@ import com.project.w_3d_world.features.model.service.ModelStorageService;
 import com.project.w_3d_world.features.model.service.ModelUploadService;
 import com.project.w_3d_world.features.model.storage.ModelStorageException;
 import com.project.w_3d_world.features.model.storage.StoredModelFile;
+import com.project.w_3d_world.features.model.validation.ModelServiceValidation;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,9 +45,9 @@ public class ModelUploadServiceImpl implements ModelUploadService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ModelUploadResponse uploadModel(
             Integer authenticatedUserId, CreateModelRequest request, MultipartFile file) {
-        validateRequest(authenticatedUserId, request, file);
+        ModelServiceValidation.validateUploadRequest(authenticatedUserId, request, file);
         String modelName = request.modelName().trim();
-        String description = normalizeDescription(request.description());
+        String description = ModelServiceValidation.normalizeDescription(request.description());
         // Register before publication. A mutable holder also covers stream-close failures and
         // failures thrown by Spring after this method returns, during transaction commit.
         if (!TransactionSynchronizationManager.isActualTransactionActive()
@@ -86,33 +86,6 @@ public class ModelUploadServiceImpl implements ModelUploadService {
                 stored.fileFormat(), stored.fileSize(), model.getVisibility(), model.getCreatedAt());
     }
 
-    private void validateRequest(Integer userId, CreateModelRequest request, MultipartFile file) {
-        if (userId == null || userId <= 0) {
-            throw ApiException.invalidRequest("Authenticated user ID is invalid.");
-        }
-        if (request == null || request.modelName() == null || request.modelName().trim().isEmpty()) {
-            throw ApiException.invalidRequest("Model name is required.");
-        }
-        if (request.modelName().length() > 255) {
-            throw ApiException.invalidRequest("Model name must not exceed 255 characters.");
-        }
-        if (request.modelName().chars().anyMatch(Character::isISOControl)) {
-            throw ApiException.invalidRequest("Model name contains invalid control characters.");
-        }
-        if (request.description() != null && request.description().chars().anyMatch(Character::isISOControl)) {
-            throw ApiException.invalidRequest("Description contains invalid control characters.");
-        }
-        if (request.description() != null && request.description().length() > 10_000) {
-            throw ApiException.invalidRequest("Description must not exceed 10000 characters.");
-        }
-        if (file == null || file.isEmpty()) {
-            throw ApiException.invalidRequest("A non-empty model file is required.");
-        }
-        if (file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()) {
-            throw ApiException.invalidRequest("The uploaded file must have a filename.");
-        }
-    }
-
     private void registerRollbackCleanup(String[] storedKey) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -133,12 +106,6 @@ public class ModelUploadServiceImpl implements ModelUploadService {
                 }
             }
         });
-    }
-
-    private static String normalizeDescription(String description) {
-        if (description == null) return null;
-        String normalized = description.trim();
-        return normalized.isEmpty() ? null : normalized;
     }
 
     private static Integer requiredId(Integer id, String message) {

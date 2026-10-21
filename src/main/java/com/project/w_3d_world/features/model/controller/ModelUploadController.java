@@ -5,6 +5,7 @@ import com.project.w_3d_world.common.response.ApiResponse;
 import com.project.w_3d_world.features.model.dto.request.CreateModelRequest;
 import com.project.w_3d_world.features.model.dto.response.ModelUploadResponse;
 import com.project.w_3d_world.features.model.service.ModelUploadService;
+import com.project.w_3d_world.features.model.validation.ModelRequestValidation;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -35,11 +36,8 @@ public class ModelUploadController {
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestPart("metadata") CreateModelRequest metadata,
             @RequestPart("file") MultipartFile file) {
-        if (user == null) {
-            throw new com.project.w_3d_world.common.exception.ApiException(
-                    HttpStatus.UNAUTHORIZED, "Authentication is required.");
-        }
-        ModelUploadResponse response = uploadService.uploadModel(user.userId(), metadata, file);
+        int userId = ModelRequestValidation.requireUserId(user);
+        ModelUploadResponse response = uploadService.uploadModel(userId, metadata, file);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.created("Model uploaded successfully", response));
     }

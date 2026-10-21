@@ -9,6 +9,7 @@ import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
 import com.project.w_3d_world.features.model.service.ModelDownloadService;
 import com.project.w_3d_world.features.model.service.ModelStorageService;
 import com.project.w_3d_world.features.model.storage.ModelStorageException;
+import com.project.w_3d_world.features.model.validation.ModelServiceValidation;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -16,7 +17,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.InputStream;
-import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -39,9 +39,9 @@ public class ModelDownloadServiceImpl implements ModelDownloadService {
     @Override
     public AuthorizedModelDownload openAuthorizedDownload(
             Integer authenticatedUserId, Integer modelId, Integer fileId) {
-        validatePositive(authenticatedUserId, "Authenticated user ID");
-        validatePositive(modelId, "Model ID");
-        validatePositive(fileId, "File ID");
+        ModelServiceValidation.validatePositive(authenticatedUserId, "Authenticated user ID");
+        ModelServiceValidation.validatePositive(modelId, "Model ID");
+        ModelServiceValidation.validatePositive(fileId, "File ID");
         modelRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(modelId, authenticatedUserId)
                 .orElseThrow(ModelDownloadServiceImpl::notFound);
 
@@ -49,7 +49,7 @@ public class ModelDownloadServiceImpl implements ModelDownloadService {
         versionRepository.findByModelVersionIdAndModelId(file.getModelVersionId(), modelId)
                 .orElseThrow(ModelDownloadServiceImpl::notFound);
 
-        String extension = normalized(file.getFileFormat());
+        String extension = ModelServiceValidation.normalizeFileFormat(file.getFileFormat());
         String safeExtension = EXTENSIONS.getOrDefault(extension, "bin");
         String contentType = MIME_TYPES.getOrDefault(extension, "application/octet-stream");
         String filename = "model-" + modelId + "-file-" + fileId + "." + safeExtension;
@@ -69,14 +69,6 @@ public class ModelDownloadServiceImpl implements ModelDownloadService {
             try { input.close(); } catch (Exception ignored) { }
             throw exception;
         }
-    }
-
-    private static String normalized(String value) {
-        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private static void validatePositive(Integer value, String name) {
-        if (value == null || value <= 0) throw ApiException.invalidRequest(name + " must be a positive integer.");
     }
 
     private static ApiException notFound() {

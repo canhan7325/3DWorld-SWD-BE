@@ -101,8 +101,9 @@ class ModelLibraryControllerTest {
 
     @Test
     void mvc04_detailsAndMyRouteDoNotConflict() throws Exception {
-        mvc.perform(get("/api/models/11").header("Authorization", token))
+        mvc.perform(get("/api/models/getId/11").header("Authorization", token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.message").value("Model retrieved successfully"))
+                .andExpect(jsonPath("$.data.modelId").value(11))
                 .andExpect(jsonPath("$.data.latestVersion.modelVersionId").value(21))
                 .andExpect(jsonPath("$.data.ownerUserId").doesNotExist())
                 .andExpect(jsonPath("$.data.storageKey").doesNotExist());
@@ -124,8 +125,11 @@ class ModelLibraryControllerTest {
     void mvc05_modelNotFoundReturns404WithoutDisclosure() throws Exception {
         when(service.getModelDetails(7, 99)).thenThrow(new com.project.w_3d_world.common.exception.ApiException(
                 org.springframework.http.HttpStatus.NOT_FOUND, "Model was not found."));
-        var result = mvc.perform(get("/api/models/99").header("Authorization", token))
-                .andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value(404)).andReturn();
+        var result = mvc.perform(get("/api/models/getId/99").header("Authorization", token))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("Model was not found."))
+                .andExpect(handler().handlerType(ModelLibraryController.class)).andReturn();
+        verify(service).getModelDetails(7, 99);
         assertFalse(result.getResponse().getContentAsString().contains("ownerUserId"));
     }
 
@@ -139,7 +143,7 @@ class ModelLibraryControllerTest {
 
     @Test
     void mvc04_invalidModelId400() throws Exception {
-        mvc.perform(get("/api/models/not-a-number").header("Authorization", token))
+        mvc.perform(get("/api/models/getId/not-a-number").header("Authorization", token))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
         verifyNoInteractions(service);
     }

@@ -10,6 +10,7 @@ import com.project.w_3d_world.features.model.repository.Model3DRepository;
 import com.project.w_3d_world.features.model.repository.ModelFileRepository;
 import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
 import com.project.w_3d_world.features.model.service.ModelVersionHistoryService;
+import com.project.w_3d_world.features.model.validation.ModelServiceValidation;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -20,7 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ModelVersionHistoryServiceImpl implements ModelVersionHistoryService {
-    private static final int MAX_PAGE_SIZE = 50;
     private final Model3DRepository modelRepository;
     private final ModelVersionRepository versionRepository;
     private final ModelFileRepository fileRepository;
@@ -28,9 +28,9 @@ public class ModelVersionHistoryServiceImpl implements ModelVersionHistoryServic
     @Override
     public PagedModelVersionsResponse getModelVersions(
             Integer authenticatedUserId, Integer modelId, int page, int size) {
-        validateUser(authenticatedUserId);
-        validatePositive(modelId, "Model ID");
-        validatePage(page, size);
+        ModelServiceValidation.validateUser(authenticatedUserId);
+        ModelServiceValidation.validatePositive(modelId, "Model ID");
+        ModelServiceValidation.validatePage(page, size);
         requireOwnedModel(authenticatedUserId, modelId);
 
         var versions = versionRepository.findByModelIdOrderByVersionNumberDesc(
@@ -43,9 +43,9 @@ public class ModelVersionHistoryServiceImpl implements ModelVersionHistoryServic
     @Override
     public ModelVersionDetailResponse getModelVersionDetails(
             Integer authenticatedUserId, Integer modelId, Integer versionId) {
-        validateUser(authenticatedUserId);
-        validatePositive(modelId, "Model ID");
-        validatePositive(versionId, "Version ID");
+        ModelServiceValidation.validateUser(authenticatedUserId);
+        ModelServiceValidation.validatePositive(modelId, "Model ID");
+        ModelServiceValidation.validatePositive(versionId, "Version ID");
         requireOwnedModel(authenticatedUserId, modelId);
 
         ModelVersion version = versionRepository.findByModelVersionIdAndModelId(versionId, modelId)
@@ -67,19 +67,6 @@ public class ModelVersionHistoryServiceImpl implements ModelVersionHistoryServic
     private static ModelVersionSummaryResponse summary(ModelVersion version) {
         return new ModelVersionSummaryResponse(version.getModelVersionId(), version.getVersionNumber(),
                 version.getSourceType(), version.getParentVersionId(), version.getChangeNote(), version.getCreatedAt());
-    }
-
-    private static void validateUser(Integer userId) {
-        if (userId == null || userId <= 0) throw ApiException.invalidRequest("Authenticated user ID is invalid.");
-    }
-
-    private static void validatePositive(Integer value, String name) {
-        if (value == null || value <= 0) throw ApiException.invalidRequest(name + " must be a positive integer.");
-    }
-
-    private static void validatePage(int page, int size) {
-        if (page < 0) throw ApiException.invalidRequest("Page must be greater than or equal to 0.");
-        if (size < 1 || size > MAX_PAGE_SIZE) throw ApiException.invalidRequest("Page size must be between 1 and 50.");
     }
 
     private static ApiException notFound() {

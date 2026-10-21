@@ -71,7 +71,7 @@ class PrintMaterialControllerTest {
 
     @Test
     void authenticatedCatalogUsesApiEnvelopeAndHidesCost() throws Exception {
-        var result = mvc.perform(get("/api/print/materials").header("Authorization", token))
+        var result = mvc.perform(get("/api/print/materials/getAll").header("Authorization", token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.data.content[0].materialId").value(4))
@@ -88,7 +88,7 @@ class PrintMaterialControllerTest {
 
     @Test
     void exactTechnologyAndPaginationAreDelegated() throws Exception {
-        mvc.perform(get("/api/print/materials").param("technologyCode", "FDM")
+        mvc.perform(get("/api/print/materials/getAll").param("technologyCode", "FDM")
                         .param("page", "1").param("size", "10")
                         .param("sort", "estimatedUnitCost,desc")
                         .header("Authorization", token))
@@ -100,10 +100,11 @@ class PrintMaterialControllerTest {
     void emptyCatalogIs200() throws Exception {
         when(service.getActiveMaterials(null, 0, 20))
                 .thenReturn(new PagedPrintMaterialResponse(List.of(), 0, 20, 0, 0));
-        mvc.perform(get("/api/print/materials").header("Authorization", token))
+        mvc.perform(get("/api/print/materials/getAll").header("Authorization", token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content").isEmpty())
                 .andExpect(jsonPath("$.data.totalElements").value(0));
+        verify(service).getActiveMaterials(null, 0, 20);
     }
 
     @Test
@@ -115,7 +116,7 @@ class PrintMaterialControllerTest {
                 {"technologyCode", "x".repeat(31)}
         };
         for (String[] parameter : invalid) {
-            mvc.perform(get("/api/print/materials").param(parameter[0], parameter[1])
+            mvc.perform(get("/api/print/materials/getAll").param(parameter[0], parameter[1])
                             .header("Authorization", token))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400));
@@ -125,7 +126,7 @@ class PrintMaterialControllerTest {
 
     @Test
     void activeDetailIs200WithoutCost() throws Exception {
-        var result = mvc.perform(get("/api/print/materials/4").header("Authorization", token))
+        var result = mvc.perform(get("/api/print/materials/getId/4").header("Authorization", token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.materialId").value(4))
                 .andExpect(jsonPath("$.data.materialName").value("PLA"))
@@ -141,16 +142,19 @@ class PrintMaterialControllerTest {
         when(service.getActiveMaterialById(5))
                 .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "Material was not found."));
         for (int id : List.of(4, 5)) {
-            mvc.perform(get("/api/print/materials/" + id).header("Authorization", token))
+            mvc.perform(get("/api/print/materials/getId/{materialId}", id).header("Authorization", token))
                     .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404))
+                    .andExpect(handler().handlerType(PrintMaterialController.class))
                     .andExpect(jsonPath("$.message").value("Material was not found."));
+            verify(service).getActiveMaterialById(id);
         }
     }
 
     @Test
     void invalidDetailIdReturns400() throws Exception {
         for (String id : List.of("0", "-1", "abc", "999999999999999999999")) {
-            mvc.perform(get("/api/print/materials/" + id).header("Authorization", token))
+            mvc.perform(get("/api/print/materials/getId/{materialId}", id).header("Authorization", token))
                     .andExpect(status().isBadRequest());
         }
         verifyNoInteractions(service);
@@ -158,8 +162,8 @@ class PrintMaterialControllerTest {
 
     @Test
     void missingAndInvalidJwtReturn401() throws Exception {
-        mvc.perform(get("/api/print/materials")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/print/materials").header("Authorization", "Bearer invalid"))
+        mvc.perform(get("/api/print/materials/getAll")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/print/materials/getAll").header("Authorization", "Bearer invalid"))
                 .andExpect(status().isUnauthorized());
         verifyNoInteractions(service);
     }
@@ -168,7 +172,7 @@ class PrintMaterialControllerTest {
     void rejectedSessionCannotReachMaterialService() throws Exception {
         doThrow(ApiException.invalidSession()).when(sessions)
                 .validateSession(eq(7), any(UUID.class), any(java.time.Instant.class));
-        mvc.perform(get("/api/print/materials").header("Authorization", token))
+        mvc.perform(get("/api/print/materials/getAll").header("Authorization", token))
                 .andExpect(status().isUnauthorized());
         verifyNoInteractions(service);
     }
