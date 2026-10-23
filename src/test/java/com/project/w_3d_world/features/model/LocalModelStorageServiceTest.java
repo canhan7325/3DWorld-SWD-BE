@@ -61,6 +61,17 @@ class LocalModelStorageServiceTest {
     }
 
     @Test
+    void elevenMegabyteStlIsStoredAndReturnedByteForByte() throws Exception {
+        byte[] bytes = new byte[84 + 220_000 * 50];
+        ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).putInt(80, 220_000);
+        var stored = store(bytes, "large.stl", "model/stl", SOURCE_MODEL);
+        assertEquals(bytes.length, stored.fileSize());
+        try (var input = storage.open(stored.storageKey())) {
+            assertArrayEquals(bytes, input.readAllBytes());
+        }
+    }
+
+    @Test
     void st04_emptyFileRejected() throws Exception {
         assertCode(EMPTY_FILE, () -> store(new byte[0], "empty.obj", null, SOURCE_MODEL));
         assertNoFiles();

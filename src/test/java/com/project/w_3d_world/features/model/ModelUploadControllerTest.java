@@ -171,7 +171,7 @@ class ModelUploadControllerTest {
     }
 
     @Test
-    void multipartDefaultsAndEnvironmentOverridesVerifiedWithoutServerStartup() {
+    void multipartDefaultsAndConfiguredLimitsVerifiedWithoutServerStartup() throws Exception {
         var defaults = new MultipartProperties().createMultipartConfig();
         assertEquals(1_048_576, defaults.getMaxFileSize());
         assertEquals(10_485_760, defaults.getMaxRequestSize());
@@ -184,6 +184,21 @@ class ModelUploadControllerTest {
         assertEquals(50_000_000, properties.createMultipartConfig().getMaxFileSize());
         assertEquals(51_000_000, properties.createMultipartConfig().getMaxRequestSize());
         assertTrue(properties.isResolveLazily());
+
+        var configured = new Properties();
+        try (var input = getClass().getClassLoader().getResourceAsStream("application.properties")) {
+            assertNotNull(input);
+            configured.load(input);
+        }
+        var deployedSettings = new MockEnvironment()
+                .withProperty("spring.servlet.multipart.max-file-size",
+                        configured.getProperty("spring.servlet.multipart.max-file-size"))
+                .withProperty("spring.servlet.multipart.max-request-size",
+                        configured.getProperty("spring.servlet.multipart.max-request-size"));
+        var effective = Binder.get(deployedSettings).bind("spring.servlet.multipart", MultipartProperties.class).get();
+        assertEquals(50_000_000, effective.createMultipartConfig().getMaxFileSize());
+        assertEquals(51_000_000, effective.createMultipartConfig().getMaxRequestSize());
+        assertTrue(effective.createMultipartConfig().getMaxRequestSize() > 11_000_084);
     }
 
     private void ignoredMetadata(String json) throws Exception {

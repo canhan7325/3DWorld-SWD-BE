@@ -2,6 +2,8 @@ package com.project.w_3d_world.features.model.validation;
 
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.model.dto.request.CreateModelRequest;
+import com.project.w_3d_world.features.model.dto.request.SaveModelVersionRequest;
+import com.project.w_3d_world.features.model.dto.request.RestoreModelVersionRequest;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Locale;
@@ -44,6 +46,38 @@ public final class ModelServiceValidation {
         }
         if (file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()) {
             throw ApiException.invalidRequest("The uploaded file must have a filename.");
+        }
+    }
+
+    public static void validateSaveRequest(
+            Integer userId, Integer modelId, SaveModelVersionRequest request, MultipartFile file) {
+        validateUser(userId);
+        validatePositive(modelId, "Model ID");
+        if (request == null || request.baseVersionId() == null || request.baseVersionId() <= 0) {
+            throw ApiException.invalidRequest("baseVersionId must be a positive integer.");
+        }
+        if (request.changeNote() != null && (request.changeNote().length() > 10_000
+                || request.changeNote().chars().anyMatch(Character::isISOControl))) {
+            throw ApiException.invalidRequest("changeNote contains invalid characters or is too long.");
+        }
+        if (file == null || file.isEmpty()) {
+            throw ApiException.invalidRequest("A non-empty model file is required.");
+        }
+        modelNameFromFilename(file.getOriginalFilename());
+    }
+
+    public static void validateRestoreRequest(
+            Integer userId, Integer modelId, Integer versionId,
+            RestoreModelVersionRequest request) {
+        validateUser(userId);
+        validatePositive(modelId, "Model ID");
+        validatePositive(versionId, "Version ID");
+        if (request == null || request.baseVersionId() == null || request.baseVersionId() <= 0) {
+            throw ApiException.invalidRequest("baseVersionId must be a positive integer.");
+        }
+        if (request.changeNote() != null && (request.changeNote().length() > 10_000
+                || request.changeNote().chars().anyMatch(Character::isISOControl))) {
+            throw ApiException.invalidRequest("changeNote contains invalid characters or is too long.");
         }
     }
 
