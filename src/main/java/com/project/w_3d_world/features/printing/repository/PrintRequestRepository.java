@@ -8,6 +8,8 @@ import org.springframework.data.repository.Repository;
 import java.util.Optional;
 
 public interface PrintRequestRepository extends Repository<PrintRequest, Integer> {
+    PrintRequest saveAndFlush(PrintRequest request);
+
     Page<PrintRequest> findByCustomerUserId(Integer customerUserId, Pageable pageable);
 
     Optional<PrintRequest> findByPrintRequestIdAndCustomerUserId(

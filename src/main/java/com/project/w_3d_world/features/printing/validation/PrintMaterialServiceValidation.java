@@ -7,14 +7,8 @@ import com.project.w_3d_world.features.printing.dto.request.UpdatePrintMaterialS
 
 import java.math.BigDecimal;
 import java.util.Locale;
-import java.util.Map;
 
 public final class PrintMaterialServiceValidation {
-    private static final Map<String, Map<String, String>> APPROVED_CATALOG = Map.of(
-            "FDM", Map.of("PLA", "PLA", "PETG", "PETG", "ABS", "ABS"),
-            "SLA", Map.of("STANDARD RESIN", "Standard Resin"));
-    private static final Map<String, String> APPROVED_UNITS = Map.of("FDM", "GRAM", "SLA", "ML");
-
     private PrintMaterialServiceValidation() {}
 
     public static void validateTechnologyFilter(String technologyCode) {
@@ -62,29 +56,27 @@ public final class PrintMaterialServiceValidation {
     }
 
     public static String canonicalTechnology(String raw) {
-        if (raw == null || raw.isBlank() || raw.length() > 30) {
-            throw ApiException.invalidRequest("Technology code is required and must not exceed 30 characters.");
+        try {
+            return PrintMaterialCompatibilityPolicy.canonicalTechnology(raw);
+        } catch (IllegalArgumentException exception) {
+            throw ApiException.invalidRequest(exception.getMessage());
         }
-        String code = raw.trim().toUpperCase(Locale.ROOT);
-        if (!APPROVED_CATALOG.containsKey(code)) throw ApiException.invalidRequest("Unsupported technology code.");
-        return code;
     }
 
     public static String canonicalName(String raw, String technology) {
-        if (raw == null || raw.isBlank() || raw.length() > 255) {
-            throw ApiException.invalidRequest("Material name is required and must not exceed 255 characters.");
+        try {
+            return PrintMaterialCompatibilityPolicy.canonicalName(raw, technology);
+        } catch (IllegalArgumentException exception) {
+            throw ApiException.invalidRequest(exception.getMessage());
         }
-        String canonical = APPROVED_CATALOG.get(technology).get(raw.trim().toUpperCase(Locale.ROOT));
-        if (canonical == null) throw ApiException.invalidRequest("Material is incompatible with the technology.");
-        return canonical;
     }
 
     public static String canonicalUnit(String raw, String technology) {
-        if (raw == null || raw.isBlank() || raw.length() > 30
-                || !APPROVED_UNITS.get(technology).equals(raw.trim().toUpperCase(Locale.ROOT))) {
-            throw ApiException.invalidRequest("Unit is incompatible with the technology.");
+        try {
+            return PrintMaterialCompatibilityPolicy.canonicalUnit(raw, technology);
+        } catch (IllegalArgumentException exception) {
+            throw ApiException.invalidRequest(exception.getMessage());
         }
-        return APPROVED_UNITS.get(technology);
     }
 
     public static void validateLegacyIdentity(String rawTechnology, String rawUnit,

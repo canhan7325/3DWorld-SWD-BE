@@ -5,7 +5,10 @@ import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.common.exception.GlobalExceptionHandler;
 import com.project.w_3d_world.common.service.JwtService;
 import com.project.w_3d_world.features.auth.service.AuthSessionService;
+import com.project.w_3d_world.features.model.download.AuthorizedModelDownload;
 import com.project.w_3d_world.features.printing.controller.PrintRequestController;
+import com.project.w_3d_world.features.printing.service.PrintRequestFileCreateService;
+import com.project.w_3d_world.features.printing.service.PrintRequestFileDownloadService;
 import com.project.w_3d_world.features.printing.dto.response.PagedPrintRequestResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestItemResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestResponse;
@@ -32,6 +35,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
+import java.io.ByteArrayInputStream;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
@@ -44,6 +48,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
 
@@ -53,6 +59,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
 class PrintRequestControllerTest {
     @Autowired WebApplicationContext context;
     @Autowired PrintRequestService service;
+    @Autowired PrintRequestFileCreateService fileCreate;
+    @Autowired PrintRequestFileDownloadService fileDownload;
     @Autowired AuthSessionService sessions;
     @Autowired JwtService jwt;
 
@@ -61,7 +69,7 @@ class PrintRequestControllerTest {
 
     @BeforeEach
     void setUp() {
-        reset(service, sessions);
+        reset(service, fileCreate, fileDownload, sessions);
         mvc = webAppContextSetup(context).apply(springSecurity()).build();
         customerToken = token("CUSTOMER");
         var summary = new PrintRequestSummaryResponse(10, "DRAFT", "Prototype",
@@ -73,6 +81,121 @@ class PrintRequestControllerTest {
         when(service.getMyRequestById(anyInt(), anyInt()))
                 .thenReturn(new PrintRequestResponse(10, "DRAFT", "Prototype",
                         Instant.parse("2026-01-01T00:00:00Z"), null, null, List.of(item)));
+    }
+
+    @Test
+    void createDraftUsesJwtOwnerAndReturnsCustomerSafe201() throws Exception {
+        var created = new PrintRequestResponse(10, "DRAFT", "Prototype",
+                Instant.parse("2026-01-01T00:00:00Z"), null, null, List.of());
+        when(fileCreate.create(eq(7), eq(3), eq(true), any())).thenReturn(created);
+        var result = mvc.perform(multipart("/api/print/requests/create")
+                        .header("Authorization", customerToken)
+                        .param("materialId", "3").param("rightsDeclarationAccepted", "true")
+                        .file(modelFile()))
+                .andExpect(status().isCreated())
+                .andExpect(handler().handlerType(PrintRequestController.class))
+                .andExpect(jsonPath("$.status").value(201))
+                .andExpect(jsonPath("$.data.printRequestId").value(10))
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))
+                .andReturn();
+        verify(fileCreate).create(eq(7), eq(3), eq(true), any());
+        verify(sessions).validateSession(eq(7), any(UUID.class), any(Instant.class));
+        assertFalse(result.getResponse().getContentAsString().contains("uploadedFileKey"));
+        assertFalse(result.getResponse().getContentAsString().contains("estimatedUnitCost"));
+    }
+
+    @Test
+    void createRejectsMissingFieldsAndJsonContract() throws Exception {
+        mvc.perform(post("/api/print/requests/create").header("Authorization", customerToken)
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isUnsupportedMediaType());
+        mvc.perform(multipart("/api/print/requests/create").header("Authorization", customerToken)
+                        .param("materialId", "3").param("rightsDeclarationAccepted", "true"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(multipart("/api/print/requests/create").header("Authorization", customerToken)
+                        .param("materialId", "3").file(modelFile()))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(fileCreate);
+    }
+
+    @Test
+    void createRejectsMissingInvalidAndRevokedSessions() throws Exception {
+        mvc.perform(multipart("/api/print/requests/create").file(modelFile())
+                        .param("materialId", "3").param("rightsDeclarationAccepted", "true"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(multipart("/api/print/requests/create").file(modelFile())
+                        .header("Authorization", "Bearer invalid")
+                        .param("materialId", "3").param("rightsDeclarationAccepted", "true"))
+                .andExpect(status().isUnauthorized());
+        doThrow(ApiException.invalidSession()).when(sessions)
+                .validateSession(eq(7), any(UUID.class), any(Instant.class));
+        mvc.perform(multipart("/api/print/requests/create").file(modelFile())
+                        .header("Authorization", customerToken)
+                        .param("materialId", "3").param("rightsDeclarationAccepted", "true"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(fileCreate);
+    }
+
+    @Test
+    void createRejectsNonCustomerAndPropagatesMissingModel() throws Exception {
+        mvc.perform(multipart("/api/print/requests/create").file(modelFile())
+                        .header("Authorization", token("PRINT_STAFF"))
+                        .param("materialId", "3").param("rightsDeclarationAccepted", "true"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(fileCreate);
+        when(fileCreate.create(eq(7), eq(3), eq(true), any()))
+                .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "Model Version was not found."));
+        mvc.perform(multipart("/api/print/requests/create").file(modelFile())
+                        .header("Authorization", customerToken)
+                        .param("materialId", "3").param("rightsDeclarationAccepted", "true"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Model Version was not found."));
+        verify(fileCreate).create(eq(7), eq(3), eq(true), any());
+    }
+
+    @Test
+    void createPersistenceFailureReturnsSafe500() throws Exception {
+        when(fileCreate.create(eq(7), eq(3), eq(true), any()))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("internal SQL detail"));
+        var result = mvc.perform(multipart("/api/print/requests/create").file(modelFile())
+                        .header("Authorization", customerToken)
+                        .param("materialId", "3").param("rightsDeclarationAccepted", "true"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.status").value(500)).andReturn();
+        assertFalse(result.getResponse().getContentAsString().contains("internal SQL detail"));
+    }
+
+    @Test
+    void ownerDownloadsUnchangedFileBytes() throws Exception {
+        byte[] bytes = {0, 1, 2, 3, -1};
+        when(fileDownload.open(7, 10)).thenReturn(new AuthorizedModelDownload(
+                new ByteArrayInputStream(bytes), "model-5-file-21.glb", "model/gltf-binary", 5L));
+        var response = mvc.perform(get("/api/print/requests/getId/10/file")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isOk()).andReturn().getResponse();
+        org.junit.jupiter.api.Assertions.assertArrayEquals(bytes, response.getContentAsByteArray());
+        verify(fileDownload).open(7, 10);
+    }
+
+    @Test
+    void fileDownloadRequiresSessionAndDoesNotRevealForeignRequests() throws Exception {
+        mvc.perform(get("/api/print/requests/getId/10/file"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/print/requests/getId/10/file")
+                        .header("Authorization", token("PRINT_STAFF")))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(fileDownload);
+        when(fileDownload.open(7, 10))
+                .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "Print Request file was not found."));
+        mvc.perform(get("/api/print/requests/getId/10/file")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isNotFound());
+        verify(fileDownload).open(7, 10);
+    }
+
+    private static org.springframework.mock.web.MockMultipartFile modelFile() {
+        return new org.springframework.mock.web.MockMultipartFile(
+                "file", "model.glb", "model/gltf-binary", new byte[] {1, 2, 3});
     }
 
     @Test
@@ -202,6 +325,8 @@ class PrintRequestControllerTest {
     @Import({SecurityConfig.class, PrintRequestController.class, GlobalExceptionHandler.class})
     static class Config implements WebMvcConfigurer {
         @Bean PrintRequestService printRequestService() { return mock(PrintRequestService.class); }
+        @Bean PrintRequestFileCreateService printRequestFileCreateService() { return mock(PrintRequestFileCreateService.class); }
+        @Bean PrintRequestFileDownloadService printRequestFileDownloadService() { return mock(PrintRequestFileDownloadService.class); }
         @Bean AuthSessionService authSessionService() { return mock(AuthSessionService.class); }
         @Bean JsonMapper mapper() { return JsonMapper.builder().build(); }
         @Bean JwtService jwt() {

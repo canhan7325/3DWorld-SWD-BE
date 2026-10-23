@@ -209,11 +209,13 @@ class ModelUploadServiceTest {
     }
 
     @Test
-    void malformedModelUsesExistingContentValidationAndRollsBack() throws Exception {
-        var exception = assertThrows(ModelStorageException.class,
-                () -> service.uploadModel(7, request(), upload("glb", new byte[] {1, 2, 3})));
-        assertEquals(ModelStorageException.Code.INVALID_CONTENT, exception.getCode());
-        assertEquals(1, transactions.rollbacks); verifyNoInteractions(files); assertNoStoredFiles();
+    void modelPayloadIsStoredAsReceived() throws Exception {
+        byte[] bytes = {1, 2, 3};
+        service.uploadModel(7, request(), upload("glb", bytes));
+        try (var input = storage.open(savedFiles.getFirst().getStorageKey())) {
+            assertArrayEquals(bytes, input.readAllBytes());
+        }
+        assertEquals(1, transactions.commits);
     }
 
     @Test

@@ -72,7 +72,7 @@ public class LocalModelStorageService implements ModelStorageService {
             try {
                 Path root = root(true);
                 if (input == null) throw new ModelStorageException(INVALID_METADATA, "An input stream is required.");
-                var format = validator.validateMetadata(originalFilename, declaredContentType, role);
+                var format = validator.validateMetadata(originalFilename, null, role);
                 String key = keys.create(modelId, modelVersionId, format.extension());
                 Path destination = resolve(root, key);
                 directories(destination.getParent(), true);
@@ -104,7 +104,9 @@ public class LocalModelStorageService implements ModelStorageService {
                     channel.force(true);
                 }
                 verifyIdentity(temporary, temporaryIdentity);
-                validator.validateContent(temporary, format);
+                if (role == ModelFileRole.EDITABLE_SCENE || role == ModelFileRole.PREVIEW) {
+                    validator.validateContent(temporary, format);
+                }
                 directories(destination.getParent(), false);
                 verifyIdentity(temporary, temporaryIdentity);
                 ensureAbsent(destination);

@@ -60,4 +60,21 @@ public class PrintRequestItem {
 
     @Column(name = "production_status", nullable = false, length = 30)
     private String productionStatus;
+
+    public PrintRequestItem(Integer printRequestId, Integer modelVersionId, Integer materialId,
+            String color, String quality, Integer infillPercent, BigDecimal widthMm,
+            BigDecimal heightMm, BigDecimal depthMm, Integer quantity, String notes) {
+        this.printRequestId = printRequestId;
+        this.modelVersionId = modelVersionId;
+        this.materialId = materialId;
+        this.color = color;
+        this.quality = quality;
+        this.infillPercent = infillPercent;
+        this.widthMm = widthMm;
+        this.heightMm = heightMm;
+        this.depthMm = depthMm;
+        this.quantity = quantity;
+        this.notes = notes;
+        this.productionStatus = "PENDING";
+    }
 }

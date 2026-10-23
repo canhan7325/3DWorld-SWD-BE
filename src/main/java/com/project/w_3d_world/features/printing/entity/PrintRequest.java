@@ -48,4 +48,11 @@ public class PrintRequest {
 
     @Column(name = "completed_at")
     private Instant completedAt;
+
+    public PrintRequest(Integer customerUserId, String customerNotes) {
+        this.customerUserId = customerUserId;
+        this.customerNotes = customerNotes;
+        this.status = "DRAFT";
+        this.createdAt = Instant.now();
+    }
 }

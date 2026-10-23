@@ -6,5 +6,7 @@ import org.springframework.data.repository.Repository;
 import java.util.List;
 
 public interface PrintRequestItemRepository extends Repository<PrintRequestItem, Integer> {
+    PrintRequestItem saveAndFlush(PrintRequestItem item);
+
     List<PrintRequestItem> findByPrintRequestIdOrderByPrintRequestItemIdAsc(Integer printRequestId);
 }

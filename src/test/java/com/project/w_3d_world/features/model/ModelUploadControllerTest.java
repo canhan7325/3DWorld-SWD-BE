@@ -81,7 +81,7 @@ class ModelUploadControllerTest {
                 .andExpect(jsonPath("$.data.fileId").value(301)).andExpect(jsonPath("$.data.visibility").value("PRIVATE"))
                 .andExpect(jsonPath("$.data.storageKey").doesNotExist()).andExpect(jsonPath("$.timestamp").exists())
                 .andReturn();
-        verify(service).uploadModel(eq(7), eq(new CreateModelRequest("Dragon", null)), any());
+        verify(service).uploadModel(eq(7), eq(new CreateModelRequest("model", null)), any());
         assertFalse(result.getResponse().getContentAsString().contains("storageRoot"));
     }
 
@@ -101,22 +101,22 @@ class ModelUploadControllerTest {
     }
 
     @Test
-    void up06_blankName400() throws Exception { invalidMetadata("{\"modelName\":\"   \"}"); }
+    void up06_blankNameMetadataIgnoredForFileOnlyUpload() throws Exception { ignoredMetadata("{\"modelName\":\"   \"}"); }
 
     @Test
-    void up07_longName400() throws Exception { invalidMetadata("{\"modelName\":\"" + "x".repeat(256) + "\"}"); }
+    void up07_longNameMetadataIgnoredForFileOnlyUpload() throws Exception { ignoredMetadata("{\"modelName\":\"" + "x".repeat(256) + "\"}"); }
 
     @Test
-    void controlCharactersAndLongDescription400() throws Exception {
-        invalidMetadata("{\"modelName\":\"bad\\u0000name\"}");
-        invalidMetadata("{\"modelName\":\"Dragon\",\"description\":\"" + "x".repeat(10001) + "\"}");
+    void controlCharactersAndLongDescriptionMetadataIgnored() throws Exception {
+        ignoredMetadata("{\"modelName\":\"bad\\u0000name\"}");
+        ignoredMetadata("{\"modelName\":\"Dragon\",\"description\":\"" + "x".repeat(10001) + "\"}");
     }
 
     @Test
-    void malformedJsonAndClientOwnershipRejected() throws Exception {
-        invalidMetadata("{bad}");
+    void malformedJsonAndClientOwnershipMetadataIgnored() throws Exception {
+        ignoredMetadata("{bad}");
         for (String field : List.of("ownerUserId", "modelId", "versionId", "storageKey", "modelType", "sourceType")) {
-            invalidMetadata("{\"modelName\":\"Dragon\",\"" + field + "\":\"injected\"}");
+            ignoredMetadata("{\"modelName\":\"Dragon\",\"" + field + "\":\"injected\"}");
         }
     }
 
@@ -129,10 +129,10 @@ class ModelUploadControllerTest {
     }
 
     @Test
-    void missingMetadata400WithEnvelope() throws Exception {
+    void missingMetadataIsAcceptedForFileOnlyUpload() throws Exception {
         mvc.perform(multipart("/api/models/uploads").file(file()).header("Authorization", token))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
-        verifyNoInteractions(service);
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value(201));
+        verify(service).uploadModel(eq(7), eq(new CreateModelRequest("model", null)), any());
     }
 
     @ParameterizedTest
@@ -186,10 +186,10 @@ class ModelUploadControllerTest {
         assertTrue(properties.isResolveLazily());
     }
 
-    private void invalidMetadata(String json) throws Exception {
+    private void ignoredMetadata(String json) throws Exception {
         mvc.perform(multipart("/api/models/uploads").file(metadata(json)).file(file()).header("Authorization", token))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
-        verifyNoInteractions(service);
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value(201));
+        verify(service, atLeastOnce()).uploadModel(eq(7), eq(new CreateModelRequest("model", null)), any());
     }
 
     private void expectServerFailure() throws Exception {

@@ -23,7 +23,6 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
@@ -42,7 +41,7 @@ public class ModelUploadServiceImpl implements ModelUploadService {
     private final ModelStorageService storageService;
 
     @Override
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public ModelUploadResponse uploadModel(
             Integer authenticatedUserId, CreateModelRequest request, MultipartFile file) {
         ModelServiceValidation.validateUploadRequest(authenticatedUserId, request, file);

@@ -9,6 +9,19 @@ import java.util.Locale;
 public final class ModelServiceValidation {
     private ModelServiceValidation() {}
 
+    public static String modelNameFromFilename(String filename) {
+        if (filename == null || filename.isBlank() || filename.length() > 255
+                || filename.chars().anyMatch(Character::isISOControl)
+                || filename.contains("/") || filename.contains("\\") || filename.contains(":")) {
+            throw ApiException.invalidRequest("A plain model filename is required.");
+        }
+        int dot = filename.lastIndexOf('.');
+        if (dot <= 0 || dot == filename.length() - 1) {
+            throw ApiException.invalidRequest("A model filename with an extension is required.");
+        }
+        return filename.substring(0, dot);
+    }
+
     public static void validateUploadRequest(Integer userId, CreateModelRequest request, MultipartFile file) {
         validateUser(userId);
         if (request == null || request.modelName() == null || request.modelName().trim().isEmpty()) {

@@ -72,9 +72,10 @@ class LocalModelStorageServiceTest {
     }
 
     @Test
-    void st06_fakeContentRejectedAndCleaned() throws Exception {
-        assertCode(INVALID_CONTENT, () -> store("not a model".getBytes(StandardCharsets.UTF_8), "fake.glb", null, SOURCE_MODEL));
-        assertNoFiles();
+    void st06_modelBytesAreStoredWithoutParsing() throws Exception {
+        byte[] bytes = "not a model".getBytes(StandardCharsets.UTF_8);
+        var result = store(bytes, "fake.glb", null, SOURCE_MODEL);
+        try (var input = storage.open(result.storageKey())) { assertArrayEquals(bytes, input.readAllBytes()); }
     }
 
     @Test
@@ -210,11 +211,12 @@ class LocalModelStorageServiceTest {
     }
 
     @Test
-    void objGeometryAcceptedButTextAndBadIndicesRejected() {
+    void objPayloadIsOpaqueToStorage() throws Exception {
         byte[] obj = text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n");
         assertEquals("model/obj", store(obj, "mesh.obj", "text/plain", SOURCE_MODEL).mimeType());
-        assertCode(INVALID_CONTENT, () -> store(text("hello world"), "bad.obj", null, SOURCE_MODEL));
-        assertCode(INVALID_CONTENT, () -> store(text("v 0 0 0\nf 1 2 3"), "bad.obj", null, SOURCE_MODEL));
+        byte[] bytes = text("v 0 0 0\nf 1 2 3");
+        var result = store(bytes, "bad.obj", null, SOURCE_MODEL);
+        try (var input = storage.open(result.storageKey())) { assertArrayEquals(bytes, input.readAllBytes()); }
     }
 
     @Test
@@ -254,31 +256,32 @@ class LocalModelStorageServiceTest {
     }
 
     @Test
-    void threeMfMissingEntriesTraversalAndBombRejected() throws Exception {
-        assertCode(INVALID_CONTENT, () -> store(zip(Map.of("readme.txt", text("not 3mf"))), "bad.3mf", null, PRINT_MODEL));
+    void threeMfPayloadIsOpaqueToStorage() throws Exception {
+        byte[] bytes = zip(Map.of("readme.txt", text("not 3mf")));
+        var result = store(bytes, "bad.3mf", null, PRINT_MODEL);
+        try (var input = storage.open(result.storageKey())) { assertArrayEquals(bytes, input.readAllBytes()); }
         var entries = threeMfEntries();
         entries.put("../escape.txt", text("bad"));
-        assertCode(INVALID_CONTENT, () -> store(zip(entries), "bad.3mf", null, PRINT_MODEL));
+        store(zip(entries), "bad.3mf", null, PRINT_MODEL);
         entries.remove("../escape.txt");
         entries.put("large.bin", new byte[1_000_000]);
-        assertCode(INVALID_CONTENT, () -> store(zip(entries), "bomb.3mf", null, PRINT_MODEL));
-        assertNoFiles();
+        store(zip(entries), "bomb.3mf", null, PRINT_MODEL);
     }
 
     @Test
-    void threeMfExternalXmlEntitiesAndExternalModelTargetsRejected() throws Exception {
+    void threeMfXmlIsNotParsedByStorage() throws Exception {
         var entries = threeMfEntries();
         entries.put("3D/3dmodel.model", text("<!DOCTYPE model [<!ENTITY x SYSTEM 'file:///secret'>]>"
                 + "<model xmlns='http://schemas.microsoft.com/3dmanufacturing/core/2015/02'><resources>&x;</resources><build/></model>"));
-        assertCode(INVALID_CONTENT, () -> store(zip(entries), "bad.3mf", null, PRINT_MODEL));
+        store(zip(entries), "bad.3mf", null, PRINT_MODEL);
         entries.put("_rels/.rels", text("<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'>"
                 + "<Relationship TargetMode='External' Target='https://example.invalid/a.model' "
                 + "Type='http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel' Id='r1'/></Relationships>"));
-        assertCode(INVALID_CONTENT, () -> store(zip(entries), "bad.3mf", null, PRINT_MODEL));
+        store(zip(entries), "bad.3mf", null, PRINT_MODEL);
     }
 
     @Test
-    void glbBadVersionLengthAndChunksRejected() {
+    void glbBytesAreNotParsedByStorage() throws Exception {
         byte[] version = glb();
         version[4] = 1;
         byte[] length = glb();
@@ -286,20 +289,21 @@ class LocalModelStorageServiceTest {
         byte[] chunk = glb();
         chunk[16] = 0;
         for (byte[] invalid : List.of(version, length, chunk)) {
-            assertCode(INVALID_CONTENT, () -> store(invalid, "bad.glb", null, SOURCE_MODEL));
+            var result = store(invalid, "bad.glb", null, SOURCE_MODEL);
+            try (var input = storage.open(result.storageKey())) { assertArrayEquals(invalid, input.readAllBytes()); }
         }
         byte[] noAsset = ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN)
                 .putInt(0x46546c67).putInt(2).putInt(24).putInt(4).putInt(0x4e4f534a)
                 .put(text("{}  ")).array();
-        assertCode(INVALID_CONTENT, () -> store(noAsset, "bad.glb", null, SOURCE_MODEL));
+        store(noAsset, "bad.glb", null, SOURCE_MODEL);
     }
 
     @Test
-    void malformedStlAndNonFiniteCoordinatesRejected() {
+    void stlBytesAreNotParsedByStorage() {
         byte[] stl = binaryStl();
         ByteBuffer.wrap(stl).order(ByteOrder.LITTLE_ENDIAN).putFloat(84, Float.NaN);
-        assertCode(INVALID_CONTENT, () -> store(stl, "bad.stl", null, PRINT_MODEL));
-        assertCode(INVALID_CONTENT, () -> store(text("solid fake\nendsolid fake"), "bad.stl", null, PRINT_MODEL));
+        store(stl, "bad.stl", null, PRINT_MODEL);
+        store(text("solid fake\nendsolid fake"), "bad.stl", null, PRINT_MODEL);
     }
 
     @Test
@@ -307,7 +311,7 @@ class LocalModelStorageServiceTest {
         for (String name : List.of("../a.glb", "a\\b.glb", "a.glb:stream", "file", ".glb", "x\u0000.glb")) {
             assertCode(INVALID_METADATA, () -> store(glb(), name, null, SOURCE_MODEL));
         }
-        assertCode(INVALID_METADATA, () -> store(glb(), "a.glb", "image/png", SOURCE_MODEL));
+        assertEquals("model/gltf-binary", store(glb(), "a.glb", "image/png", SOURCE_MODEL).mimeType());
         assertCode(INVALID_METADATA, () -> store(glb(), "a.glb", null, PREVIEW));
         assertCode(INVALID_METADATA, () -> storage.store(new ByteArrayInputStream(glb()), "a.glb", null, SOURCE_MODEL, -1, 1));
         assertCode(INVALID_METADATA, () -> storage.store(new ByteArrayInputStream(glb()), "a.glb", null, SOURCE_MODEL, 1, null));

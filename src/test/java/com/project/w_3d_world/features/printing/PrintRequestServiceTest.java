@@ -1,8 +1,13 @@
 package com.project.w_3d_world.features.printing;
 
 import com.project.w_3d_world.common.exception.ApiException;
+import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
+import com.project.w_3d_world.features.model.repository.Model3DRepository;
+import com.project.w_3d_world.features.model.repository.ModelFileRepository;
+import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
 import com.project.w_3d_world.features.printing.entity.PrintRequest;
 import com.project.w_3d_world.features.printing.entity.PrintRequestItem;
+import com.project.w_3d_world.features.printing.repository.PrintMaterialRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestItemRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestRepository;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestServiceImpl;
@@ -15,6 +20,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -34,7 +40,10 @@ class PrintRequestServiceTest {
     void setUp() {
         requests = mock(PrintRequestRepository.class);
         items = mock(PrintRequestItemRepository.class);
-        service = new PrintRequestServiceImpl(requests, items);
+        service = new PrintRequestServiceImpl(requests, items,
+                mock(PrintMaterialRepository.class), mock(ModelVersionRepository.class),
+                mock(Model3DRepository.class), mock(ModelFileRepository.class),
+                mock(AuditLogRepository.class), JsonMapper.builder().build());
     }
 
     @Test
