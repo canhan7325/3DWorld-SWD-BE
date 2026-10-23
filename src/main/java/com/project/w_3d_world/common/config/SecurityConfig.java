@@ -6,6 +6,9 @@ import com.project.w_3d_world.features.auth.service.AuthSessionService;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -15,12 +18,47 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import tools.jackson.databind.ObjectMapper;
+
+import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource(Environment environment) {
+        boolean development = environment.acceptsProfiles(Profiles.of("dev"));
+        List<String> origins = List.of();
+        if (!development) {
+            String configured = environment.getProperty("APP_CORS_ALLOWED_ORIGINS", "");
+            origins = Arrays.stream(configured.split(","))
+                    .map(String::trim).filter(value -> !value.isEmpty()).toList();
+            if (origins.stream().anyMatch(origin -> origin.contains("*"))) {
+                throw new IllegalStateException("Production CORS origins must be explicit.");
+            }
+        }
+        return corsConfigurationSource(origins, development);
+    }
+
+    private static CorsConfigurationSource corsConfigurationSource(
+            List<String> origins, boolean development) {
+        CorsConfiguration configuration = new CorsConfiguration();
+        if (development) configuration.setAllowedOriginPatterns(List.of("*"));
+        else configuration.setAllowedOrigins(origins);
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("*"));
+        configuration.setExposedHeaders(List.of("Content-Disposition"));
+        configuration.setAllowCredentials(false);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -29,9 +67,11 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http, JwtService jwtService, ObjectMapper objectMapper,
-            AuthSessionService sessionService) throws Exception {
+            AuthSessionService sessionService,
+            @Qualifier("corsConfigurationSource") CorsConfigurationSource corsSource) throws Exception {
         var jwtFilter = new JwtAuthenticationFilter(jwtService, objectMapper, sessionService);
         return http.csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.configurationSource(corsSource))
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
                 .sessionManagement(

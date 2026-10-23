@@ -24,10 +24,10 @@ public class AuditLog {
     @Column(name = "actor_user_id")
     private Integer actorUserId;
 
-    @Column(name = "action_type", nullable = false)
+    @Column(name = "action_type", nullable = false, length = 60)
     private String actionType;
 
-    @Column(name = "entity_type", nullable = false)
+    @Column(name = "entity_type", nullable = false, length = 40)
     private String entityType;
 
     @Column(name = "entity_id", nullable = false)

@@ -1,0 +1,13 @@
+package com.project.w_3d_world.features.printing.dto.response;
+
+import java.time.Instant;
+import java.util.List;
+
+public record PrintRequestResponse(
+        Integer printRequestId,
+        String status,
+        String customerNotes,
+        Instant createdAt,
+        Instant updatedAt,
+        Instant lockedAt,
+        List<PrintRequestItemResponse> items) {}
