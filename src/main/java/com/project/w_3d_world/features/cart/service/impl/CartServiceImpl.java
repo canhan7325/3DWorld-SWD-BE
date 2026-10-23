@@ -14,6 +14,7 @@ import com.project.w_3d_world.features.catalog.entity.ProductVariant;
 import com.project.w_3d_world.features.catalog.repository.ProductRepository;
 import com.project.w_3d_world.features.catalog.repository.ProductVariantRepository;
 import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
+import com.project.w_3d_world.features.user.repository.UserRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class CartServiceImpl implements CartService {
+    private final UserRepository users;
     private final CartRepository carts;
     private final CartItemRepository items;
     private final ProductVariantRepository variants;
@@ -42,7 +44,15 @@ public class CartServiceImpl implements CartService {
         Cart cart = findOrCreate(userId);
         CartItem item = items.findByCartIdAndVariantId(cart.getId(), variant.getId())
                 .orElseGet(() -> new CartItem(cart.getId(), variant.getId(), 0));
-        int quantity = item.getQuantity() + request.quantity();
+        int quantity;
+        try {
+            quantity = Math.addExact(item.getQuantity(), request.quantity());
+        } catch (ArithmeticException exception) {
+            throw ApiException.invalidRequest("Quantity exceeds the supported limit.");
+        }
+        if (item.getPriceAtAdded() == null) {
+            item.acknowledgePrice(variant.getUnitPrice());
+        }
         ensureAvailable(variant, quantity);
         item.changeQuantity(quantity);
         items.save(item);
@@ -57,8 +67,7 @@ public class CartServiceImpl implements CartService {
             throw ApiException.invalidRequest("Quantity must be positive.");
         }
         CartItem item = ownedItem(userId, itemId);
-        ProductVariant variant = variants.findById(item.getVariantId())
-                .orElseThrow(() -> ApiException.invalidRequest("Variant is unavailable."));
+        ProductVariant variant = purchasableVariant(userId, item.getVariantId());
         ensureAvailable(variant, quantity);
         item.changeQuantity(quantity);
         return response(findOrCreate(userId));
@@ -79,6 +88,8 @@ public class CartServiceImpl implements CartService {
     }
 
     private Cart findOrCreate(int userId) {
+        users.lockById(userId).filter(user -> user.isActive())
+                .orElseThrow(ApiException::invalidCredentials);
         return carts.findByUserId(userId).orElseGet(() -> carts.save(new Cart(userId)));
     }
 
@@ -130,13 +141,33 @@ public class CartServiceImpl implements CartService {
     private CartItemResponse itemResponse(CartItem item) {
         ProductVariant variant = variants.findById(item.getVariantId()).orElse(null);
         Product product = variant == null ? null : products.findById(variant.getProductId()).orElse(null);
-        boolean unavailable = variant == null || product == null || !"PUBLISHED".equals(product.getStatus())
+        boolean storefrontAvailable = product != null
+                && storefronts.findById(product.getStorefrontId())
+                        .filter(store -> !store.getOwnerUserId().equals(cartOwner(item)))
+                        .map(store -> store.canPublish()).orElse(false);
+        boolean unavailable = !storefrontAvailable || variant == null || product == null
+                || !"PUBLISHED".equals(product.getStatus())
                 || !variant.isActive()
                 || variant.getStockQuantity() - variant.getReservedQuantity() < item.getQuantity();
         BigDecimal price = variant == null ? BigDecimal.ZERO : variant.getUnitPrice();
         return new CartItemResponse(
                 item.getId(), item.getVariantId(), product == null ? null : product.getTitle(),
                 variant == null ? null : variant.getSku(), price, item.getQuantity(),
-                price.multiply(BigDecimal.valueOf(item.getQuantity())), unavailable);
+                price.multiply(BigDecimal.valueOf(item.getQuantity())), unavailable,
+                item.getPriceAtAdded(), item.getPriceAtAdded() == null
+                        || item.getPriceAtAdded().compareTo(price) != 0);
+    }
+
+    private Integer cartOwner(CartItem item) {
+        return carts.findById(item.getCartId()).orElseThrow().getUserId();
+    }
+
+    @Override
+    @Transactional
+    public CartResponse acknowledgePrice(int userId, int itemId) {
+        CartItem item = ownedItem(userId, itemId);
+        ProductVariant variant = purchasableVariant(userId, item.getVariantId());
+        item.acknowledgePrice(variant.getUnitPrice());
+        return response(findOrCreate(userId));
     }
 }

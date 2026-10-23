@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,20 +36,28 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final AuditLogRepository auditLogs;
 
     private User user(int id) {
-        return users.findById(id)
+        return users.lockById(id)
                 .orElseThrow(() -> ApiException.invalidRequest("User does not exist."));
     }
 
     @Override
     @Transactional
     public UserResponse updateProfile(int id, UpdateProfileRequest request) {
-        User user = user(id);
+        User user = users.lockById(id).orElseThrow(ApiException::invalidCredentials);
+        if (!Objects.equals(user.getPhone(), request.phone())) {
+            for (UserBankAccount account : banks.findByUserIdAndActiveTrueOrderByIdAsc(id)) {
+                account.invalidateVerification();
+            }
+            auditLogs.save(new AuditLog(id, "PHONE_CHANGED", "USER", id,
+                    "Phone and bank verification invalidated", null));
+        }
         user.updateProfile(request.fullName().trim(), request.phone());
+        user.updateDateOfBirth(request.dateOfBirth());
         return UserResponse.from(user, capabilities.getCapabilities(user));
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<AddressResponse> addresses(int id) {
         user(id);
         return addresses.findByUserIdOrderByIdAsc(id).stream()
@@ -66,6 +75,7 @@ public class UserProfileServiceImpl implements UserProfileService {
                 request.phone(),
                 request.addressLine().trim(),
                 request.city());
+        address.updateRegion(request.province(), request.district(), request.ward());
         addresses.save(address);
         if (addresses.findByUserIdOrderByIdAsc(id).size() == 1) {
             setDefaultAddress(id, address.getId());
@@ -76,18 +86,21 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     @Transactional
     public AddressResponse updateAddress(int id, int addressId, AddressRequest request) {
+        user(id);
         UserAddress address = ownedAddress(id, addressId);
         address.update(
                 request.recipientName().trim(),
                 request.phone(),
                 request.addressLine().trim(),
                 request.city());
+        address.updateRegion(request.province(), request.district(), request.ward());
         return AddressResponse.from(address);
     }
 
     @Override
     @Transactional
     public void deleteAddress(int id, int addressId) {
+        user(id);
         UserAddress address = ownedAddress(id, addressId);
         boolean wasDefault = address.isDefaultAddress();
         addresses.delete(address);
@@ -101,14 +114,16 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     @Transactional
     public AddressResponse setDefaultAddress(int id, int addressId) {
+        user(id);
         UserAddress address = ownedAddress(id, addressId);
-        addresses.findByUserIdOrderByIdAsc(id)
-                .forEach(item -> item.markDefault(item.getId().equals(addressId)));
+        addresses.findByUserIdOrderByIdAsc(id).forEach(item -> item.markDefault(false));
+        addresses.flush();
+        address.markDefault(true);
         return AddressResponse.from(address);
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<BankResponse> banks(int id) {
         user(id);
         return banks.findByUserIdAndActiveTrueOrderByIdAsc(id).stream()
@@ -131,6 +146,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     @Transactional
     public BankResponse updateBank(int id, int bankId, BankRequest request) {
+        user(id);
         UserBankAccount bank = ownedBank(id, bankId);
         bank.update(
                 request.bankCode().trim(),
@@ -147,6 +163,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     @Transactional
     public void deleteBank(int id, int bankId) {
+        user(id);
         UserBankAccount bank = ownedBank(id, bankId);
         boolean wasDefault = bank.isDefaultAccount();
         bank.deactivate();
@@ -160,9 +177,11 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     @Transactional
     public BankResponse setDefaultBank(int id, int bankId) {
+        user(id);
         UserBankAccount bank = ownedBank(id, bankId);
-        banks.findByUserIdAndActiveTrueOrderByIdAsc(id)
-                .forEach(item -> item.markDefault(item.getId().equals(bankId)));
+        banks.findByUserIdAndActiveTrueOrderByIdAsc(id).forEach(item -> item.markDefault(false));
+        banks.flush();
+        bank.markDefault(true);
         return BankResponse.from(bank);
     }
 

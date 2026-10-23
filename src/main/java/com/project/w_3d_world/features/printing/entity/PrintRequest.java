@@ -6,11 +6,12 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-
-import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "print_requests")
@@ -28,7 +29,8 @@ public class PrintRequest {
     @Column(name = "shipping_address_id")
     private Integer shippingAddressId;
 
-    @Column(name = "shipping_address_snapshot", columnDefinition = "text")
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "shipping_address_snapshot", columnDefinition = "jsonb")
     private String shippingAddressSnapshot;
 
     @Column(name = "status", nullable = false, length = 30)
@@ -48,6 +50,36 @@ public class PrintRequest {
 
     @Column(name = "completed_at")
     private Instant completedAt;
+
+    @Column(name = "cancellation_reason", columnDefinition = "text")
+    private String cancellationReason;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    @Column(name = "current_file_version")
+    private Integer currentFileVersion;
+
+    @Column(name = "current_quote_id")
+    private Integer currentQuoteId;
+
+    @Column(name = "current_spec_version")
+    private Integer currentSpecVersion;
+
+    @Column(name = "submitted_at")
+    private Instant submittedAt;
+
+    @Column(name = "handled_at")
+    private Instant handledAt;
+
+    @Column(name = "handled_by_user_id")
+    private Integer handledByUserId;
+
+    @Column(name = "copyright_confirmed", nullable = false)
+    private boolean copyrightConfirmed;
+
+    @Column(name = "preview_confirmed", nullable = false)
+    private boolean previewConfirmed;
 
     public PrintRequest(Integer customerUserId, String customerNotes) {
         this.customerUserId = customerUserId;

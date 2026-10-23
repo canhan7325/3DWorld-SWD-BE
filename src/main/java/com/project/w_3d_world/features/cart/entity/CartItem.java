@@ -6,6 +6,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -36,6 +37,12 @@ public class CartItem {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
+    @Column(name = "price_at_added", precision = 18, scale = 2)
+    private BigDecimal priceAtAdded;
+
+    @Column(name = "price_acknowledged_at")
+    private Instant priceAcknowledgedAt;
+
     public CartItem(Integer cartId, Integer variantId, int quantity) {
         this.cartId = cartId;
         this.variantId = variantId;
@@ -45,5 +52,10 @@ public class CartItem {
     public void changeQuantity(int quantity) {
         this.quantity = quantity;
         this.updatedAt = Instant.now();
+    }
+    public void acknowledgePrice(BigDecimal price) {
+        priceAtAdded = price;
+        priceAcknowledgedAt = Instant.now();
+        updatedAt = Instant.now();
     }
 }

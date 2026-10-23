@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 
 public final class PaymentRequests {
@@ -19,5 +20,7 @@ public final class PaymentRequests {
                             description = "Required only for WALLET/TOPUP",
                             example = "50000.00")
                     BigDecimal amount,
-            @Schema(example = "sandbox@example.com") String description) {}
+            @Schema(example = "Wallet top-up") String description,
+            @Schema(description = "Unique key required for each new top-up; reuse only for retries")
+            @Size(max = 80) String idempotencyKey) {}
 }

@@ -45,6 +45,9 @@ public class Shipment {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
+    @Column(name = "updated_at")
+    private Instant updatedAt;
+
     public Shipment(Integer physicalOrderId, String carrierName, String trackingNumber) {
         this.physicalOrderId = physicalOrderId;
         this.carrierName = carrierName;
@@ -53,19 +56,23 @@ public class Shipment {
 
     public void markShipped() {
         status = "SHIPPED";
+        updatedAt = Instant.now();
         shippedAt = Instant.now();
     }
 
     public void markDelivered() {
         status = "DELIVERED";
+        updatedAt = Instant.now();
         deliveredAt = Instant.now();
     }
 
     public void markFailed() {
         status = "FAILED";
+        updatedAt = Instant.now();
     }
 
     public void markReturned() {
         status = "RETURNED";
+        updatedAt = Instant.now();
     }
 }

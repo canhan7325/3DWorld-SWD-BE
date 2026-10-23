@@ -6,6 +6,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -53,4 +54,21 @@ public class Product {
 
     @Column(name = "updated_at")
     private Instant updatedAt;
+    @Column(name = "created_by_user_id")
+    private Integer createdByUserId;
+
+    @Column(name = "base_price", precision = 18, scale = 2)
+    private BigDecimal basePrice;
+
+    @Column(name = "average_rating", precision = 3, scale = 2, nullable = false)
+    private BigDecimal averageRating = BigDecimal.ZERO;
+
+    @Column(name = "badge_type", length = 30)
+    private String badgeType;
+
+    @Column(name = "review_count", nullable = false)
+    private int reviewCount;
+
+    @Column(name = "sales_count", nullable = false)
+    private int salesCount;
 }

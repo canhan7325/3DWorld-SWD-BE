@@ -23,7 +23,7 @@ public class PaymentSourceResolver {
             case "PRINT_REQUEST" -> printRequest(userId, sourceId, stage);
             case "PRINT_QUOTE" -> printQuote(userId, sourceId, stage);
             case "SUBSCRIPTION" -> subscription(userId, sourceId, stage);
-            case "WALLET" -> topUp(stage, requestedAmount);
+            case "WALLET" -> topUp(userId, sourceId, stage, requestedAmount);
             default -> throw ApiException.invalidRequest("Unsupported payment source.");
         };
     }
@@ -32,7 +32,8 @@ public class PaymentSourceResolver {
         requireStage(stage, "FULL");
         return one("SELECT total_amount FROM physical_orders "
                 + "WHERE physical_order_id = ? AND buyer_user_id = ? "
-                + "AND order_status IN ('CREATED', 'PENDING_PAYMENT')", id, userId);
+                + "AND order_status IN ('CREATED', 'PENDING_PAYMENT') "
+                + "AND reservation_status='RESERVED' AND reservation_expires_at > now()", id, userId);
     }
 
     private BigDecimal rental(int userId, int id, String stage) {
@@ -76,7 +77,11 @@ public class PaymentSourceResolver {
                 + "AND s.status = 'PENDING_PAYMENT'", id, userId);
     }
 
-    private BigDecimal topUp(String stage, BigDecimal amount) {
+    private BigDecimal topUp(int userId, int walletId, String stage, BigDecimal amount) {
+        Integer owner = jdbc.queryForObject("SELECT user_id FROM wallets WHERE wallet_id = ?", Integer.class, walletId);
+        if (!Integer.valueOf(userId).equals(owner)) {
+            throw ApiException.invalidRequest("Wallet does not belong to the current user.");
+        }
         requireStage(stage, "TOPUP");
         if (amount == null || amount.signum() <= 0) {
             throw ApiException.invalidRequest("A positive top-up amount is required.");

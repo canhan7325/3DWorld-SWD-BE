@@ -76,5 +76,14 @@ public class CartController {
         return ApiResponse.success(cart.revalidate(user.userId()));
     }
 
+    @PostMapping("/items/{itemId}/acknowledge-price")
+    @Operation(summary = "Accept current item price",
+            description = "Explicitly accept the current variant price before checkout.")
+    public ApiResponse<CartResponse> acknowledgePrice(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable int itemId) {
+        return ApiResponse.success(cart.acknowledgePrice(user.userId(), itemId));
+    }
+
     public record QuantityRequest(@Min(1) int quantity) {}
 }
