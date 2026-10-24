@@ -1,15 +1,18 @@
 package com.project.w_3d_world.features.catalog.repository;
 
 import com.project.w_3d_world.features.catalog.entity.ProductVariant;
+import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import jakarta.persistence.LockModeType;
 
 public interface ProductVariantRepository extends JpaRepository<ProductVariant, Integer> {
+    List<ProductVariant> findByProductIdInOrderByIdAsc(Collection<Integer> ids);
+
     List<ProductVariant> findByProductIdOrderByIdAsc(Integer productId);
 
     Optional<ProductVariant> findBySku(String sku);

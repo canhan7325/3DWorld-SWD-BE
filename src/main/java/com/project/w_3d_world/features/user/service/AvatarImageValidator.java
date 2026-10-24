@@ -14,7 +14,7 @@ public class AvatarImageValidator {
     private static final long MAX_BYTES = 5L * 1024 * 1024;
     private static final long MAX_PIXELS = 16_000_000;
 
-    byte[] validateAndNormalize(MultipartFile file) {
+    public byte[] validateAndNormalize(MultipartFile file) {
         if (file == null || file.isEmpty() || file.getSize() > MAX_BYTES) {
             throw ApiException.invalidRequest("Upload a non-empty JPEG or PNG image up to 5 MB.");
         }
@@ -33,7 +33,7 @@ public class AvatarImageValidator {
                 int width = reader.getWidth(0);
                 int height = reader.getHeight(0);
                 if (width < 1 || height < 1 || (long) width * height > MAX_PIXELS) {
-                    throw ApiException.invalidRequest("Avatar must contain at most 16 million pixels.");
+                    throw ApiException.invalidRequest("Image must contain at most 16 million pixels.");
                 }
                 var decoded = reader.read(0);
                 var output = new ByteArrayOutputStream();

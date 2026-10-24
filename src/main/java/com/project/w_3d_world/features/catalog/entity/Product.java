@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -71,4 +72,46 @@ public class Product {
 
     @Column(name = "sales_count", nullable = false)
     private int salesCount;
+
+    public Product(int storefrontId, int creatorId, String title) {
+        this.storefrontId = storefrontId;
+        this.createdByUserId = creatorId;
+        this.title = title;
+    }
+
+    public void edit(String title, String description, String category, String specifications,
+                     String shippingClass) {
+        if (title != null) {
+            this.title = title;
+        }
+        if (description != null) {
+            this.description = description;
+        }
+        if (category != null) {
+            this.category = category;
+        }
+        if (specifications != null) {
+            this.specifications = specifications;
+        }
+        if (shippingClass != null) {
+            this.shippingClass = shippingClass;
+        }
+        touch();
+    }
+
+    public void touch() {
+        Instant now = Instant.now();
+        updatedAt = updatedAt == null || now.isAfter(updatedAt) ? now : updatedAt.plusNanos(1000);
+        updatedAt = updatedAt.truncatedTo(ChronoUnit.MICROS);
+    }
+
+    public void changeStatus(String status, String reason) {
+        this.status = status;
+        this.moderationReason = reason;
+        if ("PUBLISHED".equals(status)) {
+            publishedAt = Instant.now();
+        }
+        touch();
+    }
+
 }

@@ -11,6 +11,7 @@ import com.project.w_3d_world.features.catalog.entity.ProductVariant;
 import com.project.w_3d_world.features.catalog.repository.ProductRepository;
 import com.project.w_3d_world.features.catalog.repository.ProductVariantRepository;
 import com.project.w_3d_world.features.order.dto.OrderRequests.CheckoutRequest;
+import com.project.w_3d_world.features.order.dto.OrderRequests.HistoryResponse;
 import com.project.w_3d_world.features.order.dto.OrderResponses.OrderItemResponse;
 import com.project.w_3d_world.features.order.dto.OrderResponses.OrderResponse;
 import com.project.w_3d_world.features.order.entity.OrderStatusHistory;
@@ -30,6 +31,7 @@ import java.time.Instant;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -104,7 +106,7 @@ public class OrderServiceImpl implements OrderService {
             ProductVariant variant = locked.get(item.getVariantId());
             Product product = products.findById(variant.getProductId()).orElseThrow();
             var storefront = storefronts.findById(product.getStorefrontId()).orElseThrow();
-            if (!"PUBLISHED".equals(product.getStatus()) || !variant.isActive()
+            if (!"PUBLISHED".equals(product.getStatus()) || !variant.isActive() || !"ACTIVE".equals(variant.getStatus())
                     || !storefront.canPublish() || storefront.getOwnerUserId().equals(userId)) {
                 throw ApiException.invalidRequest("A selected product is unavailable for this buyer.");
             }
@@ -178,8 +180,8 @@ public class OrderServiceImpl implements OrderService {
                             || grant.getRole().getCode() == RoleCode.PRINT_STAFF)))
                 .orElse(false);
         if (!owner && !operator) {
-            throw new com.project.w_3d_world.common.exception.ApiException(
-                    org.springframework.http.HttpStatus.FORBIDDEN, "You cannot process this order.");
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN, "You cannot process this order.");
         }
         if (order.getStatus().equals(status)) {
             return response(order);
@@ -220,6 +222,76 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public OrderResponse detail(int userId, int orderId) {
+        return response(readable(userId, orderId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<HistoryResponse> history(int userId, int orderId) {
+        readable(userId, orderId);
+        return history.findByOrderIdOrderByChangedAtAscIdAsc(orderId).stream()
+                .map(HistoryResponse::from).toList();
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse cancel(int userId, int orderId, String reason) {
+        PhysicalOrder order = orders.lockById(orderId).filter(value -> value.getBuyerUserId().equals(userId))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Order does not exist."));
+        if ("CANCELLED".equals(order.getStatus())) {
+            return response(order);
+        }
+        if (!Set.of("CREATED", "PENDING_PAYMENT").contains(order.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Only an unpaid order can be cancelled directly. Paid orders require the refund workflow.");
+        }
+        String from = order.getStatus();
+        if (order.hasReservation()) {
+            for (PhysicalOrderItem item : sortedItems(orderId)) {
+                variants.findByIdForUpdate(item.getVariantId()).orElseThrow().release(item.getQuantity());
+            }
+            order.released();
+        }
+        order.cancel(reason);
+        history.save(new OrderStatusHistory(orderId, from, "CANCELLED", userId, reason));
+        return response(order);
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse confirmReceived(int userId, int orderId) {
+        PhysicalOrder order = orders.lockById(orderId).filter(value -> value.getBuyerUserId().equals(userId))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Order does not exist."));
+        if ("RECEIVED".equals(order.getStatus())) {
+            return response(order);
+        }
+        if (!"DELIVERED".equals(order.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "Only a delivered order can be confirmed.");
+        }
+        order.confirmReceived();
+        history.save(new OrderStatusHistory(orderId, "DELIVERED", "RECEIVED", userId, "Buyer confirmed receipt"));
+        return response(order);
+    }
+
+    private PhysicalOrder readable(int userId, int orderId) {
+        PhysicalOrder order = orders.findById(orderId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Order does not exist."));
+        boolean buyer = order.getBuyerUserId().equals(userId);
+        boolean seller = storefronts.findByOwnerUserId(userId)
+                .filter(store -> store.getId().equals(order.getStorefrontId())).isPresent();
+        boolean operator = users.findWithRolesById(userId).filter(user -> user.isActive() && user.isEmailVerified())
+                .map(user -> user.getUserRoles().stream().anyMatch(role -> role.isActive()
+                        && (role.getRole().getCode() == RoleCode.ADMIN || role.getRole().getCode() == RoleCode.PRINT_STAFF)))
+                .orElse(false);
+        if (!buyer && !seller && !operator) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Order does not exist.");
+        }
+        return order;
+    }
+
     private List<PhysicalOrderItem> sortedItems(int id) {
         return orderItems.findByOrderId(id).stream()
                 .sorted(Comparator.comparing(PhysicalOrderItem::getVariantId)).toList();
@@ -244,7 +316,8 @@ public class OrderServiceImpl implements OrderService {
     private OrderResponse response(PhysicalOrder order) {
         var items = orderItems.findByOrderId(order.getId()).stream()
                 .map(item -> new OrderItemResponse(item.getId(), item.getVariantId(), item.getSkuSnapshot(),
-                        item.getQuantity(), item.getUnitPrice(), item.getLineTotal())).toList();
+                        item.getQuantity(), item.getUnitPrice(), item.getLineTotal(), item.getProductTitleSnapshot(),
+                        item.getVariantSnapshot())).toList();
         return OrderResponse.from(order, items);
     }
 }

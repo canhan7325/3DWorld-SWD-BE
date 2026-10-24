@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.time.Instant;
 import java.util.List;
 
 public final class OrderRequests {
@@ -14,6 +15,16 @@ public final class OrderRequests {
             String shippingAddressSnapshot,
             @NotNull Integer shippingAddressId,
             @NotBlank @Size(max = 255) String idempotencyKey) {}
+
+    public record CancelRequest(@NotBlank @Size(max = 1000) String reason) {}
+
+    public record HistoryResponse(int id, String fromStatus, String toStatus,
+            Instant changedAt, Integer changedByUserId, String reason) {
+        public static HistoryResponse from(com.project.w_3d_world.features.order.entity.OrderStatusHistory history) {
+            return new HistoryResponse(history.getId(), history.getFromStatus(), history.getToStatus(),
+                    history.getChangedAt(), history.getChangedByUserId(), history.getReason());
+        }
+    }
 
     public record StatusRequest(@NotBlank String status) {}
 }

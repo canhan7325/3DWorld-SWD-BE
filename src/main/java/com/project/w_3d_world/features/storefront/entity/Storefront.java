@@ -8,9 +8,12 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import lombok.AccessLevel;
@@ -30,8 +33,8 @@ public class Storefront {
     @Column(name = "owner_user_id", nullable = false, unique = true)
     private Integer ownerUserId;
 
-    @jakarta.persistence.ManyToOne(fetch = jakarta.persistence.FetchType.LAZY)
-    @jakarta.persistence.JoinColumn(name = "owner_user_id", insertable = false, updatable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_user_id", insertable = false, updatable = false)
     private User owner;
 
     @Column(name = "storefront_name", nullable = false)
@@ -47,6 +50,34 @@ public class Storefront {
 
     @Column(name = "expires_at")
     private Instant expiresAt;
+
+    @Column(columnDefinition = "text")
+    private String description;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt = Instant.now();
+
+    public Storefront(int ownerUserId, String name, String description) {
+        this.ownerUserId = ownerUserId;
+        this.name = name;
+        this.description = description;
+        this.status = StorefrontStatus.INACTIVE;
+        this.verificationStatus = VerificationStatus.VERIFIED;
+    }
+
+    public void edit(String name, String description) {
+        if (name != null) {
+            this.name = name;
+        }
+        if (description != null) {
+            this.description = description;
+        }
+    }
+
+    public void activateUntil(Instant end) {
+        status = StorefrontStatus.ACTIVE;
+        expiresAt = end;
+    }
 
     public boolean canPublish() {
         return owner != null && owner.isActive() && owner.isEmailVerified() && owner.isPhoneVerified()
