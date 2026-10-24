@@ -1,5 +1,6 @@
 package com.project.w_3d_world.features.catalog.repository;
 
+import com.project.w_3d_world.features.auth.enums.RoleCode;
 import com.project.w_3d_world.features.catalog.entity.Product;
 import java.util.List;
 import java.util.Optional;
@@ -19,7 +20,13 @@ public interface ProductRepository extends JpaRepository<Product, Integer> {
                           and s.status = com.project.w_3d_world.features.storefront.enums.StorefrontStatus.ACTIVE
                           and s.verificationStatus =
                               com.project.w_3d_world.features.storefront.enums.VerificationStatus.VERIFIED
-                          and s.expiresAt > CURRENT_TIMESTAMP)
+                          and s.expiresAt > CURRENT_TIMESTAMP
+                          and s.owner.accountStatus =
+                              com.project.w_3d_world.features.user.enums.AccountStatus.ACTIVE
+                          and s.owner.emailVerified=true and s.owner.phoneVerified=true
+                          and exists (select ur.id from UserRole ur where ur.user.id=s.ownerUserId
+                                      and ur.approvalStatus = com.project.w_3d_world.features.auth.enums.ApprovalStatus.ACTIVE
+                                      and ur.role.code = RoleCode.SELLER))
               and (cast(:keyword as string) is null
                    or lower(p.title) like lower(concat('%', cast(:keyword as string), '%')))
               and (cast(:category as string) is null

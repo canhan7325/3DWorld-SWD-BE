@@ -1,7 +1,9 @@
 package com.project.w_3d_world.features.storefront.entity;
 
+import com.project.w_3d_world.features.auth.enums.RoleCode;
 import com.project.w_3d_world.features.storefront.enums.StorefrontStatus;
 import com.project.w_3d_world.features.storefront.enums.VerificationStatus;
+import com.project.w_3d_world.features.user.entity.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -28,6 +30,10 @@ public class Storefront {
     @Column(name = "owner_user_id", nullable = false, unique = true)
     private Integer ownerUserId;
 
+    @jakarta.persistence.ManyToOne(fetch = jakarta.persistence.FetchType.LAZY)
+    @jakarta.persistence.JoinColumn(name = "owner_user_id", insertable = false, updatable = false)
+    private User owner;
+
     @Column(name = "storefront_name", nullable = false)
     private String name;
 
@@ -43,9 +49,19 @@ public class Storefront {
     private Instant expiresAt;
 
     public boolean canPublish() {
-        return status == StorefrontStatus.ACTIVE
+        return owner != null && owner.isActive() && owner.isEmailVerified() && owner.isPhoneVerified()
+                && owner.getUserRoles().stream().anyMatch(grant -> grant.isActive()
+                    && grant.getRole().getCode() == RoleCode.SELLER)
+                && status == StorefrontStatus.ACTIVE
                 && verificationStatus == VerificationStatus.VERIFIED
                 && expiresAt != null
                 && expiresAt.isAfter(Instant.now());
+    }
+    public void reviewVerification(boolean approved) {
+        verificationStatus = approved ? VerificationStatus.VERIFIED : VerificationStatus.REJECTED;
+    }
+
+    public void invalidateVerification() {
+        verificationStatus = VerificationStatus.PENDING;
     }
 }

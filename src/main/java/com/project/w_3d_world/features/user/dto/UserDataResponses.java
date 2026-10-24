@@ -36,7 +36,8 @@ public final class UserDataResponses {
             String accountNumberMasked,
             String verificationStatus,
             boolean isDefault,
-            boolean isActive) {
+            boolean isActive,
+            String verificationFingerprint) {
         public static BankResponse from(UserBankAccount bank) {
             return new BankResponse(
                     bank.getId(),
@@ -46,7 +47,7 @@ public final class UserDataResponses {
                     bank.getAccountNumberMasked(),
                     bank.getVerificationStatus(),
                     bank.isDefaultAccount(),
-                    bank.isActive());
+                    bank.isActive(), bank.reviewFingerprint());
         }
     }
 }

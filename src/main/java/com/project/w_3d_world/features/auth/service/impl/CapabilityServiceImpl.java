@@ -1,5 +1,6 @@
 package com.project.w_3d_world.features.auth.service.impl;
 
+import com.project.w_3d_world.features.auth.service.SellerVerificationService;
 import com.project.w_3d_world.features.auth.entity.UserRole;
 import com.project.w_3d_world.features.auth.enums.Capability;
 import com.project.w_3d_world.features.auth.enums.RoleCode;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class CapabilityServiceImpl implements CapabilityService {
     private final StorefrontRepository storefrontRepository;
+    private final SellerVerificationService sellerVerification;
 
     @Override
     @Transactional(readOnly = true)
@@ -27,6 +29,7 @@ public class CapabilityServiceImpl implements CapabilityService {
 
         Set<RoleCode> roles = user.getUserRoles().stream()
                 .filter(UserRole::isActive)
+                .filter(role -> user.isEmailVerified() || role.getRole().getCode() == RoleCode.CUSTOMER)
                 .map(role -> role.getRole().getCode())
                 .collect(Collectors.toSet());
 
@@ -36,11 +39,18 @@ public class CapabilityServiceImpl implements CapabilityService {
                 Capability.ADDRESS_MANAGE,
                 Capability.BANK_ACCOUNT_MANAGE);
 
+        if (sellerVerification.canSubmit(user)) {
+            capabilities.add(Capability.SELLER_VERIFICATION_SUBMIT);
+        }
+        if (roles.contains(RoleCode.PRINT_STAFF) || roles.contains(RoleCode.ADMIN)) {
+            capabilities.add(Capability.SELLER_VERIFICATION_REVIEW);
+            capabilities.add(Capability.ORDER_PROCESS_EXISTING);
+        }
         if (roles.contains(RoleCode.SELLER)) {
             storefrontRepository.findByOwnerUserId(user.getId()).ifPresent(storefront -> {
                 capabilities.add(Capability.STOREFRONT_MANAGE_OWN);
                 capabilities.add(Capability.ORDER_PROCESS_EXISTING);
-                if (storefront.canPublish()) {
+                if (storefront.canPublish() && sellerVerification.eligible(user)) {
                     capabilities.add(Capability.CATALOG_PUBLISH);
                 }
             });
@@ -51,7 +61,10 @@ public class CapabilityServiceImpl implements CapabilityService {
                     Capability.USER_ROLE_MANAGE,
                     Capability.USER_STATUS_MANAGE,
                     Capability.REPORT_REVIEW,
-                    Capability.PLATFORM_CONFIG_MANAGE));
+                    Capability.PLATFORM_CONFIG_MANAGE,
+                    Capability.BANK_VERIFICATION_REVIEW,
+                    Capability.PHONE_VERIFICATION_REVIEW,
+                    Capability.INTERNAL_ACCOUNT_CREATE));
         }
 
         return capabilities;

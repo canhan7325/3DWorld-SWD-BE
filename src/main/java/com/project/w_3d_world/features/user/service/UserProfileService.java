@@ -9,6 +9,8 @@ import com.project.w_3d_world.features.user.dto.UserDataResponses.BankResponse;
 import java.util.List;
 
 public interface UserProfileService {
+    UserResponse profile(int userId);
+
     UserResponse updateProfile(int userId, UpdateProfileRequest request);
 
     List<AddressResponse> addresses(int userId);

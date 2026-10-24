@@ -1,6 +1,7 @@
 package com.project.w_3d_world.features.user.entity;
 
 import com.project.w_3d_world.features.auth.entity.UserRole;
+import com.project.w_3d_world.features.auth.enums.TokenPurpose;
 import com.project.w_3d_world.features.user.enums.AccountStatus;
 import jakarta.persistence.*;
 import java.time.Instant;
@@ -11,6 +12,8 @@ import java.util.Set;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "users")
@@ -68,6 +71,23 @@ public class User {
     @Column(name = "google_id", length = 255, unique = true)
     private String googleId;
 
+    @Column(name = "auth_version", nullable = false)
+    private long authVersion;
+
+    @Column(name = "email_verification_version", nullable = false)
+    private long emailVerificationVersion;
+
+    @Column(name = "password_reset_version", nullable = false)
+    private long passwordResetVersion;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "email_delivery_state", nullable = false, columnDefinition = "jsonb")
+    private String emailDeliveryState = "{}";
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "seller_verification_state", nullable = false, columnDefinition = "jsonb")
+    private String sellerVerificationState = "{}";
+
     public User(String email, String passwordHash, String fullName, String phone) {
         this.email = email;
         this.passwordHash = passwordHash;
@@ -86,6 +106,7 @@ public class User {
     }
 
     public void revokeSessions() {
+        authVersion = Math.incrementExact(authVersion);
         updatedAt = Instant.now();
     }
 
@@ -108,5 +129,36 @@ public class User {
     }
     public void updateDateOfBirth(LocalDate value) {
         dateOfBirth = value;
+    }
+    public long nextEmailVersion(TokenPurpose purpose) {
+        if (purpose == TokenPurpose.VERIFY_EMAIL) {
+            return emailVerificationVersion = Math.incrementExact(emailVerificationVersion);
+        }
+        return passwordResetVersion = Math.incrementExact(passwordResetVersion);
+    }
+
+    public long emailVersion(TokenPurpose purpose) {
+        return purpose == TokenPurpose.VERIFY_EMAIL
+                ? emailVerificationVersion : passwordResetVersion;
+    }
+
+    public void emailDeliveryState(String value) {
+        emailDeliveryState = value;
+    }
+
+    public void sellerVerificationState(String value) {
+        sellerVerificationState = value;
+    }
+
+    public void reviewPhone(boolean approved) {
+        phoneVerified = approved;
+        updatedAt = Instant.now();
+    }
+
+    public void changeStatus(AccountStatus value) {
+        accountStatus = value;
+        emailVerificationVersion = Math.incrementExact(emailVerificationVersion);
+        passwordResetVersion = Math.incrementExact(passwordResetVersion);
+        revokeSessions();
     }
 }

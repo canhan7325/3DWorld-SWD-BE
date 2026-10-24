@@ -3,6 +3,7 @@ package com.project.w_3d_world.features.shipping.service.impl;
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.audit.entity.AuditLog;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
+import com.project.w_3d_world.features.auth.enums.RoleCode;
 import com.project.w_3d_world.features.order.entity.OrderStatusHistory;
 import com.project.w_3d_world.features.order.entity.PhysicalOrder;
 import com.project.w_3d_world.features.order.repository.OrderStatusHistoryRepository;
@@ -26,6 +27,7 @@ public class ShipmentServiceImpl implements ShipmentService {
     private final PhysicalOrderRepository orders;
     private final StorefrontRepository storefronts;
     private final ShippingProvider provider;
+    private final com.project.w_3d_world.features.auth.service.AccountAuthorization authorization;
     private final OrderStatusHistoryRepository history;
     private final AuditLogRepository audit;
 
@@ -121,9 +123,12 @@ public class ShipmentServiceImpl implements ShipmentService {
     private PhysicalOrder sellerOrder(int sellerId, int orderId) {
         PhysicalOrder order = orders.findById(orderId)
                 .orElseThrow(() -> ApiException.invalidRequest("Order does not exist."));
-        storefronts.findByOwnerUserId(sellerId)
-                .filter(storefront -> storefront.getId().equals(order.getStorefrontId()))
-                .orElseThrow(() -> ApiException.invalidRequest("You do not own this storefront."));
+        boolean owner = storefronts.findByOwnerUserId(sellerId)
+                .filter(storefront -> storefront.getId().equals(order.getStorefrontId())).isPresent();
+        if (!owner) {
+            authorization.requireRole(sellerId, RoleCode.ADMIN,
+                    RoleCode.PRINT_STAFF);
+        }
         return order;
     }
 }
