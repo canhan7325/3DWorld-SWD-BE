@@ -10,7 +10,7 @@ public final class OrderResponses {
     private OrderResponses() {}
 
     public record OrderItemResponse(Integer id, Integer variantId, String sku, int quantity,
-                                    BigDecimal unitPrice, BigDecimal lineTotal) {}
+                                    BigDecimal unitPrice, BigDecimal lineTotal, String productTitle, String attributes) {}
 
     public record OrderResponse(Integer id, Integer storefrontId, BigDecimal subtotal,
                                 BigDecimal shippingFee, BigDecimal totalAmount, String status,
@@ -18,14 +18,19 @@ public final class OrderResponses {
                                 String orderCode, UUID checkoutGroupId,
                                 Instant reservationExpiresAt, String reservationStatus,
                                 BigDecimal commissionRateSnapshot, Integer refundWindowHoursSnapshot,
-                                Integer autoConfirmHoursSnapshot, String shippingAddressSnapshot) {
+                                Integer autoConfirmHoursSnapshot, String shippingAddressSnapshot,
+                                String cancellationReason, Instant cancelledAt, Instant deliveredAt,
+                                Instant receivedAt, Instant refundDeadlineAt, Instant autoConfirmDueAt,
+                                Integer shippingPackageCount, Integer shippingWeightGrams) {
         public static OrderResponse from(PhysicalOrder order, List<OrderItemResponse> items) {
             return new OrderResponse(order.getId(), order.getStorefrontId(), order.getSubtotal(),
                     order.getShippingFee(), order.getTotalAmount(), order.getStatus(),
                     order.getCreatedAt(), items, order.getOrderCode(), order.getCheckoutGroupId(),
                     order.getReservationExpiresAt(), order.getReservationStatus(),
                     order.getCommissionRateSnapshot(), order.getRefundWindowHoursSnapshot(),
-                    order.getAutoConfirmHoursSnapshot(), order.getAddressSnapshot());
+                    order.getAutoConfirmHoursSnapshot(), order.getAddressSnapshot(), order.getCancellationReason(),
+                    order.getCancelledAt(), order.getDeliveredAt(), order.getReceivedAt(), order.getRefundDeadlineAt(),
+                    order.getAutoConfirmDueAt(), order.getShippingPackageCount(), order.getShippingWeightGrams());
         }
     }
 }

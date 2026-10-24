@@ -4,6 +4,7 @@ import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.cart.dto.CartRequests.ItemRequest;
 import com.project.w_3d_world.features.cart.dto.CartResponses.CartItemResponse;
 import com.project.w_3d_world.features.cart.dto.CartResponses.CartResponse;
+import com.project.w_3d_world.features.cart.dto.CartResponses.ShopGroup;
 import com.project.w_3d_world.features.cart.entity.Cart;
 import com.project.w_3d_world.features.cart.entity.CartItem;
 import com.project.w_3d_world.features.cart.repository.CartItemRepository;
@@ -11,12 +12,16 @@ import com.project.w_3d_world.features.cart.repository.CartRepository;
 import com.project.w_3d_world.features.cart.service.CartService;
 import com.project.w_3d_world.features.catalog.entity.Product;
 import com.project.w_3d_world.features.catalog.entity.ProductVariant;
+import com.project.w_3d_world.features.catalog.repository.ProductMediaRepository;
 import com.project.w_3d_world.features.catalog.repository.ProductRepository;
 import com.project.w_3d_world.features.catalog.repository.ProductVariantRepository;
 import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
 import com.project.w_3d_world.features.user.repository.UserRepository;
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +35,7 @@ public class CartServiceImpl implements CartService {
     private final ProductVariantRepository variants;
     private final ProductRepository products;
     private final StorefrontRepository storefronts;
+    private final ProductMediaRepository media;
 
     @Override
     @Transactional
@@ -40,8 +46,8 @@ public class CartServiceImpl implements CartService {
     @Override
     @Transactional
     public CartResponse add(int userId, ItemRequest request) {
-        ProductVariant variant = purchasableVariant(userId, request.variantId());
         Cart cart = findOrCreate(userId);
+        ProductVariant variant = purchasableVariant(userId, request.variantId());
         CartItem item = items.findByCartIdAndVariantId(cart.getId(), variant.getId())
                 .orElseGet(() -> new CartItem(cart.getId(), variant.getId(), 0));
         int quantity;
@@ -111,7 +117,7 @@ public class CartServiceImpl implements CartService {
                 .orElseThrow(() -> ApiException.invalidRequest("Product is not available."));
         var storefront = storefronts.findById(product.getStorefrontId())
                 .orElseThrow(() -> ApiException.invalidRequest("Storefront is not available."));
-        if (!variant.isActive() || !storefront.canPublish()) {
+        if (!variant.isActive() || !"ACTIVE".equals(variant.getStatus()) || !storefront.canPublish()) {
             throw ApiException.invalidRequest("This product is currently unavailable.");
         }
         if (storefront.getOwnerUserId().equals(userId)) {
@@ -128,26 +134,43 @@ public class CartServiceImpl implements CartService {
     }
 
     private CartResponse response(Cart cart) {
-        List<CartItemResponse> result = items.findByCartIdOrderByIdAsc(cart.getId()).stream()
-                .map(this::itemResponse)
-                .toList();
+        var cartItems = items.findByCartIdOrderByIdAsc(cart.getId());
+        var variantMap = variants.findAllById(cartItems.stream().map(CartItem::getVariantId).distinct().toList()).stream()
+                .collect(Collectors.toMap(ProductVariant::getId, value -> value));
+        var productMap = products.findAllById(variantMap.values().stream().map(ProductVariant::getProductId).distinct().toList()).stream()
+                .collect(Collectors.toMap(Product::getId, value -> value));
+        var storeMap = storefronts.findByIdIn(productMap.values().stream().map(Product::getStorefrontId).distinct().toList()).stream()
+                .collect(Collectors.toMap(value -> value.getId(), value -> value));
+        var thumbnailMap = new HashMap<Integer, String>();
+        media.findByProductIdInOrderBySortOrderAscIdAsc(productMap.keySet())
+                .forEach(image -> thumbnailMap.putIfAbsent(image.getProductId(), image.getMediaUrl()));
+        List<CartItemResponse> result = cartItems.stream().map(item -> {
+            ProductVariant variant = variantMap.get(item.getVariantId());
+            Product product = variant == null ? null : productMap.get(variant.getProductId());
+            var store = product == null ? null : storeMap.get(product.getStorefrontId());
+            boolean storefrontAvailable = store != null && !store.getOwnerUserId().equals(cart.getUserId()) && store.canPublish();
+            return itemResponse(item, variant, product, storefrontAvailable,
+                    product == null ? null : thumbnailMap.get(product.getId()));
+        }).toList();
         BigDecimal total = result.stream()
                 .filter(item -> !item.unavailable())
                 .map(CartItemResponse::lineTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        return new CartResponse(cart.getId(), result, total);
+        var grouped = result.stream().collect(Collectors.groupingBy(
+                item -> item.storefrontId() == null ? 0 : item.storefrontId(), TreeMap::new,
+                Collectors.toList()));
+        var groups = grouped.entrySet().stream().map(entry ->
+                new ShopGroup(entry.getKey(), entry.getValue(),
+                        entry.getValue().stream().filter(item -> !item.unavailable()).map(CartItemResponse::lineTotal)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add))).toList();
+        return new CartResponse(cart.getId(), result, total, groups);
     }
 
-    private CartItemResponse itemResponse(CartItem item) {
-        ProductVariant variant = variants.findById(item.getVariantId()).orElse(null);
-        Product product = variant == null ? null : products.findById(variant.getProductId()).orElse(null);
-        boolean storefrontAvailable = product != null
-                && storefronts.findById(product.getStorefrontId())
-                        .filter(store -> !store.getOwnerUserId().equals(cartOwner(item)))
-                        .map(store -> store.canPublish()).orElse(false);
+    private CartItemResponse itemResponse(CartItem item, ProductVariant variant, Product product,
+                                         boolean storefrontAvailable, String thumbnail) {
         boolean unavailable = !storefrontAvailable || variant == null || product == null
                 || !"PUBLISHED".equals(product.getStatus())
-                || !variant.isActive()
+                || !variant.isActive() || !"ACTIVE".equals(variant.getStatus())
                 || variant.getStockQuantity() - variant.getReservedQuantity() < item.getQuantity();
         BigDecimal price = variant == null ? BigDecimal.ZERO : variant.getUnitPrice();
         return new CartItemResponse(
@@ -155,11 +178,9 @@ public class CartServiceImpl implements CartService {
                 variant == null ? null : variant.getSku(), price, item.getQuantity(),
                 price.multiply(BigDecimal.valueOf(item.getQuantity())), unavailable,
                 item.getPriceAtAdded(), item.getPriceAtAdded() == null
-                        || item.getPriceAtAdded().compareTo(price) != 0);
-    }
-
-    private Integer cartOwner(CartItem item) {
-        return carts.findById(item.getCartId()).orElseThrow().getUserId();
+                        || item.getPriceAtAdded().compareTo(price) != 0,
+                product == null ? null : product.getId(), product == null ? null : product.getStorefrontId(),
+                thumbnail);
     }
 
     @Override
