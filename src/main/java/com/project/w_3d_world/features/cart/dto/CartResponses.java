@@ -8,7 +8,8 @@ public final class CartResponses {
 
     public record CartItemResponse(Integer itemId, Integer variantId, String productTitle,
                                    String sku, BigDecimal unitPrice, int quantity,
-                                   BigDecimal lineTotal, boolean unavailable) {}
+                                   BigDecimal lineTotal, boolean unavailable,
+                                   BigDecimal previousUnitPrice, boolean priceChanged) {}
 
     public record CartResponse(Integer cartId, List<CartItemResponse> items, BigDecimal total) {}
 }

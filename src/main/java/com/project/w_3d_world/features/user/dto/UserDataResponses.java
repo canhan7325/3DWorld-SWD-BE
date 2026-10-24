@@ -12,6 +12,9 @@ public final class UserDataResponses {
             String phone,
             String addressLine,
             String city,
+            String province,
+            String district,
+            String ward,
             boolean isDefault) {
         public static AddressResponse from(UserAddress address) {
             return new AddressResponse(
@@ -20,6 +23,7 @@ public final class UserDataResponses {
                     address.getPhone(),
                     address.getAddressLine(),
                     address.getCity(),
+                    address.getProvince(), address.getDistrict(), address.getWard(),
                     address.isDefaultAddress());
         }
     }

@@ -9,9 +9,11 @@ import com.project.w_3d_world.features.model.download.AuthorizedModelDownload;
 import com.project.w_3d_world.features.printing.controller.PrintRequestController;
 import com.project.w_3d_world.features.printing.service.PrintRequestFileCreateService;
 import com.project.w_3d_world.features.printing.service.PrintRequestFileDownloadService;
+import com.project.w_3d_world.features.printing.service.PrintRequestFileVersionService;
 import com.project.w_3d_world.features.printing.dto.response.PagedPrintRequestResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestItemResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestResponse;
+import com.project.w_3d_world.features.printing.dto.response.PrintRequestFileVersionResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestSummaryResponse;
 import com.project.w_3d_world.features.printing.service.PrintRequestService;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,6 +63,7 @@ class PrintRequestControllerTest {
     @Autowired PrintRequestService service;
     @Autowired PrintRequestFileCreateService fileCreate;
     @Autowired PrintRequestFileDownloadService fileDownload;
+    @Autowired PrintRequestFileVersionService fileVersions;
     @Autowired AuthSessionService sessions;
     @Autowired JwtService jwt;
 
@@ -69,7 +72,7 @@ class PrintRequestControllerTest {
 
     @BeforeEach
     void setUp() {
-        reset(service, fileCreate, fileDownload, sessions);
+        reset(service, fileCreate, fileDownload, fileVersions, sessions);
         mvc = webAppContextSetup(context).apply(springSecurity()).build();
         customerToken = token("CUSTOMER");
         var summary = new PrintRequestSummaryResponse(10, "DRAFT", "Prototype",
@@ -102,6 +105,73 @@ class PrintRequestControllerTest {
         verify(sessions).validateSession(eq(7), any(UUID.class), any(Instant.class));
         assertFalse(result.getResponse().getContentAsString().contains("uploadedFileKey"));
         assertFalse(result.getResponse().getContentAsString().contains("estimatedUnitCost"));
+    }
+
+    @Test
+    void correctionUsesJwtCustomerMultipartAndReturnsCreatedVersion() throws Exception {
+        when(fileVersions.correct(eq(7), eq(10), eq(1), any())).thenReturn(
+                new PrintRequestFileVersionResponse(10, 2, "corrected.stl", 3L,
+                        "model/stl", Instant.parse("2026-10-24T00:00:00Z"), true,
+                        "/api/print/requests/getId/10/file/versions/2/download"));
+        mvc.perform(multipart("/api/print/requests/getId/10/file/correct")
+                        .file(modelFile()).param("expectedCurrentFileVersion", "1")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.version").value(2))
+                .andExpect(jsonPath("$.data.current").value(true))
+                .andExpect(jsonPath("$.data.downloadPath")
+                        .value("/api/print/requests/getId/10/file/versions/2/download"));
+        verify(fileVersions).correct(eq(7), eq(10), eq(1), any());
+        mvc.perform(multipart("/api/print/requests/getId/10/file/correct")
+                        .file(modelFile()).param("expectedCurrentFileVersion", "1"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(multipart("/api/print/requests/getId/10/file/correct")
+                        .file(modelFile()).param("expectedCurrentFileVersion", "1")
+                        .header("Authorization", "Bearer invalid"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(multipart("/api/print/requests/getId/10/file/correct")
+                        .file(modelFile()).param("expectedCurrentFileVersion", "1")
+                        .header("Authorization", token("PRINT_STAFF")))
+                .andExpect(status().isForbidden());
+        mvc.perform(multipart("/api/print/requests/getId/10/file/correct")
+                        .file(modelFile()).header("Authorization", customerToken))
+                .andExpect(status().isBadRequest());
+        reset(fileVersions);
+        when(fileVersions.correct(eq(7), eq(10), eq(1), any())).thenThrow(
+                new ApiException(HttpStatus.NOT_FOUND, "Print Request was not found."));
+        mvc.perform(multipart("/api/print/requests/getId/10/file/correct")
+                        .file(modelFile()).param("expectedCurrentFileVersion", "1")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isNotFound());
+        reset(fileVersions);
+        when(fileVersions.correct(eq(7), eq(10), eq(1), any())).thenThrow(
+                new ApiException(HttpStatus.CONFLICT, "Print Request file cannot be changed."));
+        mvc.perform(multipart("/api/print/requests/getId/10/file/correct")
+                        .file(modelFile()).param("expectedCurrentFileVersion", "1")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void ownerCanListAndDownloadHistoricalVersion() throws Exception {
+        when(fileVersions.list(7, 10)).thenReturn(List.of(
+                new PrintRequestFileVersionResponse(10, 1, "original.stl", 4L,
+                        "model/stl", Instant.parse("2026-10-24T00:00:00Z"), false,
+                        "/api/print/requests/getId/10/file/versions/1/download")));
+        mvc.perform(get("/api/print/requests/getId/10/file/versions")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].version").value(1))
+                .andExpect(jsonPath("$.data[0].current").value(false));
+        byte[] bytes = {1, 2, 3, 4};
+        when(fileVersions.download(7, 10, 1)).thenReturn(new AuthorizedModelDownload(
+                new ByteArrayInputStream(bytes), "original.stl", "model/stl", 4L));
+        mvc.perform(get("/api/print/requests/getId/10/file/versions/1/download")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(bytes))
+                .andExpect(header().string("Cache-Control", "private, no-store"));
+        verify(fileVersions).download(7, 10, 1);
     }
 
     @Test
@@ -327,6 +397,7 @@ class PrintRequestControllerTest {
         @Bean PrintRequestService printRequestService() { return mock(PrintRequestService.class); }
         @Bean PrintRequestFileCreateService printRequestFileCreateService() { return mock(PrintRequestFileCreateService.class); }
         @Bean PrintRequestFileDownloadService printRequestFileDownloadService() { return mock(PrintRequestFileDownloadService.class); }
+        @Bean PrintRequestFileVersionService printRequestFileVersionService() { return mock(PrintRequestFileVersionService.class); }
         @Bean AuthSessionService authSessionService() { return mock(AuthSessionService.class); }
         @Bean JsonMapper mapper() { return JsonMapper.builder().build(); }
         @Bean JwtService jwt() {

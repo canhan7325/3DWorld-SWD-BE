@@ -41,6 +41,18 @@ public class UserAddress {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
+    @Column(name = "province", length = 255)
+    private String province;
+
+    @Column(name = "district", length = 255)
+    private String district;
+
+    @Column(name = "ward", length = 255)
+    private String ward;
+
+    @Column(name = "updated_at")
+    private Instant updatedAt;
+
     public UserAddress(
             Integer userId,
             String recipientName,
@@ -59,6 +71,14 @@ public class UserAddress {
         this.phone = phone;
         this.addressLine = addressLine;
         this.city = city;
+        updatedAt = Instant.now();
+    }
+
+    public void updateRegion(String province, String district, String ward) {
+        this.province = province;
+        this.district = district;
+        this.ward = ward;
+        updatedAt = Instant.now();
     }
 
     public void markDefault(boolean value) {

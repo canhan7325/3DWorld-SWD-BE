@@ -1,6 +1,8 @@
 package com.project.w_3d_world.features.payment.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
+import com.project.w_3d_world.common.util.JsonValues;
+import com.project.w_3d_world.features.order.service.OrderPaymentService;
 import com.project.w_3d_world.features.payment.dto.PaymentRequests.CreatePaymentRequest;
 import com.project.w_3d_world.features.payment.dto.PaymentResponses.PaymentResponse;
 import com.project.w_3d_world.features.payment.entity.PaymentAttempt;
@@ -11,14 +13,21 @@ import com.project.w_3d_world.features.payment.service.PaymentService;
 import com.project.w_3d_world.features.payment.service.PaymentSourceResolver;
 import com.project.w_3d_world.features.payment.service.ZaloPayClient;
 import com.project.w_3d_world.features.payment.service.ZaloPayProperties;
+import com.project.w_3d_world.features.user.repository.UserRepository;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,11 +41,19 @@ public class PaymentServiceImpl implements PaymentService {
     private final ZaloPayClient zaloPay;
     private final ZaloPayProperties properties;
     private final PaymentSourceResolver sourceResolver;
+    private final UserRepository users;
+    private final OrderPaymentService orderPayments;
+    private final JdbcTemplate jdbc;
 
     @Override
     @Transactional
     public PaymentResponse create(int userId, CreatePaymentRequest request) {
+        users.lockById(userId).filter(user -> user.isActive()).orElseThrow(ApiException::invalidCredentials);
         validateSource(request.sourceType());
+        if ("WALLET".equals(request.sourceType())
+                && (request.idempotencyKey() == null || request.idempotencyKey().isBlank())) {
+            throw ApiException.invalidRequest("A unique idempotencyKey is required for a top-up.");
+        }
         BigDecimal amount = sourceResolver.resolve(
                 userId,
                 request.sourceType(),
@@ -45,18 +62,35 @@ public class PaymentServiceImpl implements PaymentService {
                 request.amount());
 
         String operationKey = "ZALOPAY:" + userId + ":" + request.sourceType()
-                + ":" + request.sourceId() + ":" + request.stage();
+                + ":" + request.sourceId() + ":" + request.stage()
+                + ("WALLET".equals(request.sourceType()) ? ":" + request.idempotencyKey() : "");
+        operationKey = HexFormat.of().formatHex(hashKey(operationKey));
+        String stableOperationKey = operationKey;
         PaymentTransaction transaction = transactions.findByOperationKey(operationKey)
-                .orElseGet(() -> createTransaction(userId, request, operationKey, amount));
+                .orElseGet(() -> createTransaction(userId, request, stableOperationKey, amount));
+        if (transaction.getAmount().compareTo(amount) != 0) {
+            throw ApiException.invalidRequest("Payment snapshot differs; create a new payment source.");
+        }
+        var previous = attempts.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(
+                transaction.getId(), "ZALOPAY");
+        if ("SUCCESS".equals(transaction.getStatus()) || previous.filter(value ->
+                "REQUESTED".equals(value.getAttemptStatus()) || "UNKNOWN".equals(value.getAttemptStatus()))
+                .isPresent()) {
+            var value = previous.orElseThrow();
+            return new PaymentResponse(transaction.getId(), value.getId(), value.getExternalReference(),
+                    transaction.getAmount(), transaction.getStatus(), value.getOrderUrl(), null);
+        }
         PaymentAttempt attempt = new PaymentAttempt(
-                transaction.getId(), operationKey + ":ATTEMPT:" + UUID.randomUUID(), "ZALOPAY");
+                transaction.getId(), "ZALOPAY-" + UUID.randomUUID(), "ZALOPAY");
+        long appTime = System.currentTimeMillis();
+        attempt.initializeProvider(previous.map(value -> value.getAttemptNumber() + 1).orElse(1),
+                properties.appId(), appTime, Instant.now().plusSeconds(900));
         attempts.saveAndFlush(attempt);
 
         String appTransId = LocalDate.now(ZoneOffset.UTC).format(APP_TRANS_DATE)
-                + "_" + transaction.getId();
+                + "_" + attempt.getId();
         attempt.reference(appTransId);
-        long appTime = System.currentTimeMillis();
-        String embedData = "{\"redirecturl\":\"" + properties.callbackUrl() + "\"}";
+        String embedData = "{}";
         String item = "[]";
         int amountVnd = toAmount(amount);
         String signData = properties.appId() + "|" + appTransId + "|user-" + userId
@@ -75,7 +109,15 @@ public class PaymentServiceImpl implements PaymentService {
         payload.put("callback_url", properties.callbackUrl());
         payload.put("mac", zaloPay.signCreateOrder(signData));
 
-        Map<String, Object> response = zaloPay.createOrder(payload);
+        Map<String, Object> response;
+        try {
+            response = zaloPay.createOrder(payload);
+        } catch (RuntimeException exception) {
+            attempt.reconciliation("Provider create outcome is unknown; query before retrying.");
+            return new PaymentResponse(transaction.getId(), attempt.getId(), appTransId,
+                    amount, "UNKNOWN", null, null);
+        }
+        attempt.providerResult(stringValue(response.get("order_url")), stringValue(response.get("return_code")));
         if (!"1".equals(stringValue(response.getOrDefault("return_code", "0")))) {
             attempt.fail();
             transaction.markFailed();
@@ -103,11 +145,7 @@ public class PaymentServiceImpl implements PaymentService {
         PaymentAttempt attempt = attempts.findByExternalReferenceAndProviderName(
                         appTransId, "ZALOPAY")
                 .orElseThrow(() -> ApiException.invalidRequest("Unknown ZaloPay transaction."));
-        if ("SUCCESS".equals(attempt.getAttemptStatus())) {
-            return;
-        }
-
-        PaymentTransaction transaction = transactions.findById(attempt.getTransactionId())
+        PaymentTransaction transaction = transactions.lockById(attempt.getTransactionId())
                 .orElseThrow(() -> ApiException.invalidRequest("Unknown payment transaction."));
         long callbackAmount = parseLong(callback.get("amount"));
         if (!appTransId.equals(attempt.getExternalReference())
@@ -115,27 +153,54 @@ public class PaymentServiceImpl implements PaymentService {
             throw ApiException.invalidRequest("ZaloPay callback does not match the payment.");
         }
 
+        if (parseLong(callback.get("app_id")) != properties.appId()) {
+            throw ApiException.invalidRequest("ZaloPay app ID does not match.");
+        }
+        if ("SUCCESS".equals(attempt.getAttemptStatus())) {
+            return;
+        }
+        attempt.recordEvent(JsonValues.write(callback));
         attempt.providerTransaction(stringValue(callback.get("zp_trans_id")));
         attempt.success();
         transaction.markSuccess();
+        orderPayments.verified(transaction);
     }
 
     @Override
     @Transactional
     public void reconcilePending() {
-        for (PaymentAttempt attempt : attempts.findByAttemptStatusAndProviderName(
+        for (PaymentAttempt candidate : attempts.findByAttemptStatusAndProviderName(
                 "REQUESTED", "ZALOPAY")) {
-            PaymentTransaction transaction = transactions.findById(attempt.getTransactionId())
+            PaymentAttempt attempt = attempts.lockById(candidate.getId()).orElseThrow();
+            if (!"REQUESTED".equals(attempt.getAttemptStatus())) {
+                continue;
+            }
+            PaymentTransaction transaction = transactions.lockById(attempt.getTransactionId())
                     .orElse(null);
             if (transaction == null || attempt.getExternalReference() == null) {
                 continue;
             }
 
-            Map<String, Object> result = zaloPay.queryOrder(attempt.getExternalReference());
+            Map<String, Object> result;
+            try {
+                result = zaloPay.queryOrder(attempt.getExternalReference());
+                attempt.queried();
+            } catch (RuntimeException exception) {
+                attempt.reconciliation("Provider query unavailable; retry later.");
+                continue;
+            }
             String returnCode = stringValue(result.get("return_code"));
             if ("1".equals(returnCode)) {
+                if (result.get("amount") == null
+                        || parseLong(result.get("amount")) != toAmount(transaction.getAmount())) {
+                    attempt.reconciliation("Provider query amount does not match.");
+                    continue;
+                }
+                attempt.providerTransaction(stringValue(result.get("zp_trans_id")));
+                attempt.recordEvent(JsonValues.write(result));
                 attempt.success();
                 transaction.markSuccess();
+                orderPayments.verified(transaction);
             } else if ("-1".equals(returnCode)) {
                 attempt.fail();
                 transaction.markFailed();
@@ -146,27 +211,9 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @Transactional
     public PaymentResponse refund(int userId, int transactionId, BigDecimal amount, String reason) {
-        PaymentTransaction original = transactions.findById(transactionId)
-                .orElseThrow(() -> ApiException.invalidRequest("Payment transaction does not exist."));
-        if (!userIdEquals(original, userId) || !"SUCCESS".equals(original.getStatus())) {
-            throw ApiException.invalidRequest("Payment is not refundable by this user.");
-        }
-        if (amount == null || amount.signum() <= 0 || amount.compareTo(original.getAmount()) > 0) {
-            throw ApiException.invalidRequest("Refund amount is invalid.");
-        }
-        PaymentAttempt attempt = attempts.findByTransactionIdAndProviderName(transactionId, "ZALOPAY")
-                .orElseThrow(() -> ApiException.invalidRequest("Payment attempt does not exist."));
-        if (attempt.getProviderTransactionId() == null) {
-            throw ApiException.invalidRequest("ZaloPay transaction reference is unavailable.");
-        }
-        Map<String, Object> result = zaloPay.refundOrder(
-                attempt.getProviderTransactionId(), toAmount(amount), reason);
-        if (!"1".equals(stringValue(result.get("return_code")))) {
-            throw ApiException.invalidRequest("ZaloPay refund was not accepted.");
-        }
-        return new PaymentResponse(
-                original.getId(), attempt.getId(), attempt.getExternalReference(),
-                amount, "REFUND_REQUESTED", null, null);
+        // Keep the existing route, but never bypass the v2 refund request/review lifecycle.
+        throw new ApiException(org.springframework.http.HttpStatus.CONFLICT,
+                "Direct refunds are not enabled. An approved refund request and settlement workflow are required.");
     }
 
     private PaymentTransaction createTransaction(
@@ -176,12 +223,16 @@ public class PaymentServiceImpl implements PaymentService {
             BigDecimal amount) {
         PaymentTransaction transaction = new PaymentTransaction(
                 request.sourceType(), operationKey, userId, request.stage(), amount);
-        transaction.setSource(request.sourceType(), request.sourceId());
+        if ("PRINT_QUOTE".equals(request.sourceType())) {
+            Integer printId = jdbc.queryForObject(
+                    "SELECT print_request_id FROM print_quotes WHERE print_quote_id = ?",
+                    Integer.class, request.sourceId());
+            transaction.setSource("PRINT_REQUEST", printId);
+            transaction.setSource("PRINT_QUOTE", request.sourceId());
+        } else {
+            transaction.setSource(request.sourceType(), request.sourceId());
+        }
         return transactions.saveAndFlush(transaction);
-    }
-
-    private boolean userIdEquals(PaymentTransaction transaction, int userId) {
-        return transaction.getPayerUserId() != null && transaction.getPayerUserId() == userId;
     }
 
     private void validateSource(String sourceType) {
@@ -223,5 +274,13 @@ public class PaymentServiceImpl implements PaymentService {
 
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+    private byte[] hashKey(String value) {
+        try {
+            return MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 }

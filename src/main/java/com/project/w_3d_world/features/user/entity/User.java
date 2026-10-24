@@ -2,16 +2,15 @@ package com.project.w_3d_world.features.user.entity;
 
 import com.project.w_3d_world.features.auth.entity.UserRole;
 import com.project.w_3d_world.features.user.enums.AccountStatus;
-
 import jakarta.persistence.*;
-
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.HashSet;
+import java.util.Objects;
+import java.util.Set;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-
-import java.time.Instant;
-import java.util.HashSet;
-import java.util.Set;
 
 @Entity
 @Table(name = "users")
@@ -31,6 +30,12 @@ public class User {
 
     @Column(name = "full_name", nullable = false, length = 255)
     private String fullName;
+
+    @Column(name = "avatar_url", columnDefinition = "text")
+    private String avatarUrl;
+
+    @Column(name = "avatar_public_id", length = 255)
+    private String avatarPublicId;
 
     @Column(length = 30)
     private String phone;
@@ -57,6 +62,12 @@ public class User {
     @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
     private Set<UserRole> userRoles = new HashSet<>();
 
+    @Column(name = "date_of_birth")
+    private LocalDate dateOfBirth;
+
+    @Column(name = "google_id", length = 255, unique = true)
+    private String googleId;
+
     public User(String email, String passwordHash, String fullName, String phone) {
         this.email = email;
         this.passwordHash = passwordHash;
@@ -80,11 +91,22 @@ public class User {
 
     public void updateProfile(String fullName, String phone) {
         this.fullName = fullName;
+        if (!Objects.equals(this.phone, phone)) {
+            phoneVerified = false;
+        }
         this.phone = phone;
         updatedAt = Instant.now();
     }
 
     public boolean isActive() {
         return accountStatus == AccountStatus.ACTIVE;
+    }
+
+    public void changeAvatar(String url, String publicId) {
+        avatarUrl = url;
+        avatarPublicId = publicId;
+    }
+    public void updateDateOfBirth(LocalDate value) {
+        dateOfBirth = value;
     }
 }

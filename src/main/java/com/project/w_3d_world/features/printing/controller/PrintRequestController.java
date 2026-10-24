@@ -4,9 +4,11 @@ import com.project.w_3d_world.common.config.AuthenticatedUser;
 import com.project.w_3d_world.common.response.ApiResponse;
 import com.project.w_3d_world.features.printing.dto.response.PagedPrintRequestResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestResponse;
+import com.project.w_3d_world.features.printing.dto.response.PrintRequestFileVersionResponse;
 import com.project.w_3d_world.features.printing.service.PrintRequestService;
 import com.project.w_3d_world.features.printing.service.PrintRequestFileCreateService;
 import com.project.w_3d_world.features.printing.service.PrintRequestFileDownloadService;
+import com.project.w_3d_world.features.printing.service.PrintRequestFileVersionService;
 import com.project.w_3d_world.features.printing.validation.PrintRequestValidation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -31,6 +33,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.HttpHeaders;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/print/requests")
@@ -42,6 +45,7 @@ public class PrintRequestController {
     private final PrintRequestService service;
     private final PrintRequestFileCreateService fileCreateService;
     private final PrintRequestFileDownloadService fileDownloadService;
+    private final PrintRequestFileVersionService fileVersionService;
 
     @PostMapping(value = "/create", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<PrintRequestResponse>> create(
@@ -81,6 +85,46 @@ public class PrintRequestController {
         int customerId = PrintRequestValidation.requireCustomerId(customer);
         int id = PrintRequestValidation.parsePrintRequestId(printRequestId);
         try (var download = fileDownloadService.open(customerId, id)) {
+            response.setContentType(download.contentType());
+            response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                    "attachment; filename=\"" + download.filename() + "\"");
+            response.setHeader(HttpHeaders.CACHE_CONTROL, "private, no-store");
+            response.setHeader("X-Content-Type-Options", "nosniff");
+            download.inputStream().transferTo(response.getOutputStream());
+        }
+    }
+
+    @PostMapping(value = "/getId/{printRequestId}/file/correct",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<PrintRequestFileVersionResponse>> correctFile(
+            @AuthenticationPrincipal AuthenticatedUser customer,
+            @PathVariable String printRequestId,
+            @RequestParam Integer expectedCurrentFileVersion,
+            @RequestPart("file") MultipartFile file) {
+        int customerId = PrintRequestValidation.requireCustomerId(customer);
+        int id = PrintRequestValidation.parsePrintRequestId(printRequestId);
+        var created = fileVersionService.correct(customerId, id, expectedCurrentFileVersion, file);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.created("Print Request file version created successfully", created));
+    }
+
+    @GetMapping("/getId/{printRequestId}/file/versions")
+    public ApiResponse<List<PrintRequestFileVersionResponse>> fileVersions(
+            @AuthenticationPrincipal AuthenticatedUser customer,
+            @PathVariable String printRequestId) {
+        int customerId = PrintRequestValidation.requireCustomerId(customer);
+        return ApiResponse.success(fileVersionService.list(customerId,
+                PrintRequestValidation.parsePrintRequestId(printRequestId)));
+    }
+
+    @GetMapping("/getId/{printRequestId}/file/versions/{version}/download")
+    public void downloadFileVersion(@AuthenticationPrincipal AuthenticatedUser customer,
+            @PathVariable String printRequestId, @PathVariable String version,
+            HttpServletResponse response) throws IOException {
+        int customerId = PrintRequestValidation.requireCustomerId(customer);
+        int id = PrintRequestValidation.parsePrintRequestId(printRequestId);
+        int fileVersion = PrintRequestValidation.parseFileVersion(version);
+        try (var download = fileVersionService.download(customerId, id, fileVersion)) {
             response.setContentType(download.contentType());
             response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
                     "attachment; filename=\"" + download.filename() + "\"");

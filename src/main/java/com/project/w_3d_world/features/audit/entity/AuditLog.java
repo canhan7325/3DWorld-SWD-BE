@@ -1,5 +1,6 @@
 package com.project.w_3d_world.features.audit.entity;
 
+import com.project.w_3d_world.common.util.JsonValues;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -10,6 +11,8 @@ import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "audit_logs")
@@ -36,11 +39,23 @@ public class AuditLog {
     @Column(columnDefinition = "text")
     private String reason;
 
-    @Column(columnDefinition = "text")
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
     private String metadata;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
+
+    @Column(name = "actor_role", length = 40)
+    private String actorRole;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "old_value", columnDefinition = "jsonb")
+    private String oldValue;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "new_value", columnDefinition = "jsonb")
+    private String newValue;
 
     public AuditLog(
             Integer actorUserId,
@@ -54,6 +69,6 @@ public class AuditLog {
         this.entityType = entityType;
         this.entityId = entityId;
         this.reason = reason;
-        this.metadata = metadata;
+        this.metadata = JsonValues.normalizeMetadata(metadata);
     }
 }

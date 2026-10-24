@@ -35,4 +35,6 @@ public class ProductMedia {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
+    @Column(name = "variant_id")
+    private Integer variantId;
 }

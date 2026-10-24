@@ -3,7 +3,7 @@ package com.project.w_3d_world.features.auth.dto.response;
 import com.project.w_3d_world.features.auth.entity.UserRole;
 import com.project.w_3d_world.features.auth.enums.Capability;
 import com.project.w_3d_world.features.user.entity.User;
-
+import java.time.LocalDate;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -11,6 +11,8 @@ public record UserResponse(
         int userId,
         String email,
         String fullName,
+        String avatarUrl,
+        LocalDate dateOfBirth,
         String phone,
         boolean emailVerified,
         Set<String> roles,
@@ -26,6 +28,8 @@ public record UserResponse(
                 user.getId(),
                 user.getEmail(),
                 user.getFullName(),
+                user.getAvatarUrl(),
+                user.getDateOfBirth(),
                 user.getPhone(),
                 user.isEmailVerified(),
                 roles,

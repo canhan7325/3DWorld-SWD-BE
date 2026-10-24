@@ -10,6 +10,7 @@ import com.project.w_3d_world.features.model.service.ModelUploadService;
 import com.project.w_3d_world.features.model.service.impl.LocalModelStorageService;
 import com.project.w_3d_world.features.model.service.impl.ModelUploadServiceImpl;
 import com.project.w_3d_world.features.printing.service.PrintRequestFileCreateService;
+import com.project.w_3d_world.features.printing.service.PrintRequestFileVersionService;
 import com.project.w_3d_world.features.printing.service.PrintRequestService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -59,10 +60,57 @@ class PrintRequestFileTransactionTest {
         });
         when(requestService.createDraft(any(), any())).thenThrow(new IllegalStateException("request failed"));
         ModelUploadService uploader = proxied(new ModelUploadServiceImpl(models, versions, files, storage), transactions);
-        var create = proxied(new PrintRequestFileCreateService(uploader, requestService), transactions);
+        var create = proxied(new PrintRequestFileCreateService(uploader, requestService,
+                mock(PrintRequestFileVersionService.class)), transactions);
         var file = new MockMultipartFile("file", "scene.glb", "model/gltf-binary", new byte[] {1, 2, 3});
 
         assertThrows(IllegalStateException.class, () -> create.create(7, 3, true, file));
+        assertEquals(0, transactions.commits);
+        assertEquals(1, transactions.rollbacks);
+        try (var paths = Files.walk(root)) {
+            assertEquals(0, paths.filter(Files::isRegularFile).count());
+        }
+    }
+
+    @Test
+    void fileVersionFailureRollsBackModelUploadAndRemovesExactFile() throws Exception {
+        var models = mock(Model3DRepository.class);
+        var versions = mock(ModelVersionRepository.class);
+        var files = mock(ModelFileRepository.class);
+        var requestService = mock(PrintRequestService.class);
+        var fileVersionService = mock(PrintRequestFileVersionService.class);
+        var storage = new LocalModelStorageService(root);
+        var transactions = new RecordingTransactions();
+        AtomicInteger nextId = new AtomicInteger(100);
+        when(models.saveAndFlush(any())).thenAnswer(call -> {
+            Model3D value = call.getArgument(0);
+            ReflectionTestUtils.setField(value, "modelId", nextId.incrementAndGet());
+            return value;
+        });
+        when(versions.saveAndFlush(any())).thenAnswer(call -> {
+            ModelVersion value = call.getArgument(0);
+            ReflectionTestUtils.setField(value, "modelVersionId", nextId.incrementAndGet());
+            return value;
+        });
+        when(files.saveAndFlush(any())).thenAnswer(call -> {
+            ModelFile value = call.getArgument(0);
+            ReflectionTestUtils.setField(value, "fileId", nextId.incrementAndGet());
+            return value;
+        });
+        when(requestService.createDraft(any(), any())).thenReturn(
+                new com.project.w_3d_world.features.printing.dto.response.PrintRequestResponse(
+                        44, "DRAFT", null, java.time.Instant.now(), null, null,
+                        java.util.List.of()));
+        doThrow(new IllegalStateException("file version insert failed"))
+                .when(fileVersionService).recordInitial(eq(7), eq(44), any(), eq("shape.glb"));
+        ModelUploadService uploader = proxied(
+                new ModelUploadServiceImpl(models, versions, files, storage), transactions);
+        var create = proxied(new PrintRequestFileCreateService(uploader, requestService,
+                fileVersionService), transactions);
+
+        assertThrows(IllegalStateException.class, () -> create.create(7, 3, true,
+                new MockMultipartFile("file", "shape.glb", "model/gltf-binary",
+                        new byte[]{1, 2, 3})));
         assertEquals(0, transactions.commits);
         assertEquals(1, transactions.rollbacks);
         try (var paths = Files.walk(root)) {
