@@ -6,7 +6,8 @@ import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
-import static com.project.w_3d_world.features.model.storage.ModelStorageException.Code.*;
+import com.project.w_3d_world.features.model.exception.ModelStorageException;
+import static com.project.w_3d_world.features.model.exception.ModelStorageException.Code.*;
 
 public final class ModelStorageKeyFactory {
     private static final Set<String> EXTENSIONS = Set.of("glb", "stl", "obj", "3mf", "json", "png", "jpg", "jpeg");

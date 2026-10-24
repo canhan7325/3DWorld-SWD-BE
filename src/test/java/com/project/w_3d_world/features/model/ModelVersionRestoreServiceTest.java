@@ -20,7 +20,7 @@ import com.project.w_3d_world.features.model.service.impl.ModelDownloadServiceIm
 import com.project.w_3d_world.features.model.service.impl.ModelVersionHistoryServiceImpl;
 import com.project.w_3d_world.features.model.service.impl.ModelVersionRestoreServiceImpl;
 import com.project.w_3d_world.features.model.service.impl.ModelVersionSaveServiceImpl;
-import com.project.w_3d_world.features.model.storage.ModelStorageException;
+import com.project.w_3d_world.features.model.exception.ModelStorageException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

@@ -1,6 +1,7 @@
-package com.project.w_3d_world.features.printing.service;
+package com.project.w_3d_world.features.printing.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
+import com.project.w_3d_world.features.printing.exception.PrintingErrors;
 import com.project.w_3d_world.features.model.download.AuthorizedModelDownload;
 import com.project.w_3d_world.features.model.dto.response.ModelUploadResponse;
 import com.project.w_3d_world.features.model.repository.ModelFileRepository;
@@ -18,7 +19,6 @@ import com.project.w_3d_world.features.printing.validation.PrintRequestValidatio
 import java.util.List;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -43,7 +43,7 @@ public class PrintRequestFileVersionService {
         PrintRequestValidation.validatePrintRequestId(requestId);
         var request = ownedForUpdate(customerId, requestId);
         if (!"DRAFT".equals(request.getStatus()) || request.getCurrentFileVersion() != null) {
-            throw conflict();
+            throw PrintingErrors.fileChangeConflict();
         }
         saveFileVersion(requestId, 1, customerId, upload, fileName);
         request.useFileVersion(1);
@@ -65,15 +65,15 @@ public class PrintRequestFileVersionService {
         var request = ownedForUpdate(customerId, requestId);
         if (!"DRAFT".equals(request.getStatus()) || request.getLockedAt() != null
                 || request.getSubmittedAt() != null || request.getCurrentQuoteId() != null
-                || request.getCancelledAt() != null) throw conflict();
-        if (!expectedVersion.equals(request.getCurrentFileVersion())) throw conflict();
+                || request.getCancelledAt() != null) throw PrintingErrors.fileChangeConflict();
+        if (!expectedVersion.equals(request.getCurrentFileVersion())) throw PrintingErrors.fileChangeConflict();
         var current = fileVersions.findByPrintRequestIdAndVersion(requestId, expectedVersion)
-                .orElseThrow(PrintRequestFileVersionService::conflict);
-        if (current.getFileUrl() == null) throw conflict();
+                .orElseThrow(PrintingErrors::fileChangeConflict);
+        if (current.getFileUrl() == null) throw PrintingErrors.fileChangeConflict();
 
         var requestItems = items.findByPrintRequestIdOrderByPrintRequestItemIdAsc(requestId);
         if (requestItems.isEmpty() || requestItems.stream().anyMatch(item ->
-                !"PENDING".equals(item.getProductionStatus()))) throw conflict();
+                !"PENDING".equals(item.getProductionStatus()))) throw PrintingErrors.fileChangeConflict();
 
         var uploaded = modelUpload.uploadModel(customerId, new CreateModelRequest(name, null), file);
         int next = Math.addExact(expectedVersion, 1);
@@ -102,14 +102,14 @@ public class PrintRequestFileVersionService {
             throw ApiException.invalidRequest("version must be positive.");
         }
         var record = fileVersions.findByPrintRequestIdAndVersion(requestId, version)
-                .orElseThrow(PrintRequestFileVersionService::notFound);
+                .orElseThrow(PrintingErrors::requestNotFound);
         var matcher = MODEL_DOWNLOAD.matcher(record.getFileUrl());
-        if (!matcher.matches()) throw notFound();
+        if (!matcher.matches()) throw PrintingErrors.requestNotFound();
         try {
             return modelDownload.openAuthorizedDownload(customerId,
                     Integer.parseInt(matcher.group(1)), Integer.parseInt(matcher.group(2)));
         } catch (NumberFormatException exception) {
-            throw notFound();
+            throw PrintingErrors.requestNotFound();
         }
     }
 
@@ -141,20 +141,12 @@ public class PrintRequestFileVersionService {
         PrintRequestValidation.validateCustomerId(customerId);
         PrintRequestValidation.validatePrintRequestId(requestId);
         return requests.findByPrintRequestIdAndCustomerUserId(requestId, customerId)
-                .orElseThrow(PrintRequestFileVersionService::notFound);
+                .orElseThrow(PrintingErrors::requestNotFound);
     }
 
     private PrintRequest ownedForUpdate(Integer customerId, Integer requestId) {
         return requests.findOwnedByIdForUpdate(requestId, customerId)
-                .orElseThrow(PrintRequestFileVersionService::notFound);
+                .orElseThrow(PrintingErrors::requestNotFound);
     }
 
-    private static ApiException notFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "Print Request was not found.");
-    }
-
-    private static ApiException conflict() {
-        return new ApiException(HttpStatus.CONFLICT,
-                "Print Request file cannot be changed in its current state.");
-    }
 }

@@ -3,13 +3,31 @@ package com.project.w_3d_world.features.printing;
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.printing.dto.request.CreatePrintRequestItemRequest;
 import com.project.w_3d_world.features.printing.dto.request.CreatePrintRequestRequest;
+import com.project.w_3d_world.features.printing.dto.request.UpdatePrintRequestSpecificationItemRequest;
+import com.project.w_3d_world.features.printing.dto.request.UpdatePrintRequestSpecificationRequest;
+import com.project.w_3d_world.features.printing.entity.PrintMaterial;
+import com.project.w_3d_world.features.printing.entity.PrintRequest;
+import com.project.w_3d_world.features.printing.entity.PrintRequestItem;
+import com.project.w_3d_world.features.printing.entity.PrintRequestSpecVersion;
+import com.project.w_3d_world.features.printing.repository.PrintMaterialRepository;
+import com.project.w_3d_world.features.printing.repository.PrintRequestItemRepository;
+import com.project.w_3d_world.features.printing.repository.PrintRequestRepository;
+import com.project.w_3d_world.features.printing.repository.PrintRequestSpecVersionRepository;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestSpecificationService;
 import com.project.w_3d_world.features.printing.validation.PrintRequestCreateValidation;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Optional;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 class PrintRequestSpecificationValidationTest {
     @Test
@@ -67,6 +85,135 @@ class PrintRequestSpecificationValidationTest {
                 () -> PrintRequestCreateValidation.validate(new CreatePrintRequestRequest(null, null, items)));
         assertDoesNotThrow(() -> PrintRequestCreateValidation.validate(
                 new CreatePrintRequestRequest(null, true, items)));
+    }
+
+    @Test
+    void initialSnapshotAndUpdateKeepFileVersionIndependentAndHistoryImmutable() {
+        var requests = mock(PrintRequestRepository.class);
+        var items = mock(PrintRequestItemRepository.class);
+        var versions = mock(PrintRequestSpecVersionRepository.class);
+        var materials = mock(PrintMaterialRepository.class);
+        var mapper = JsonMapper.builder().build();
+        var service = new PrintRequestSpecificationService(requests, items, versions,
+                materials, mapper);
+        var draft = new PrintRequest(7, "Prototype");
+        ReflectionTestUtils.setField(draft, "printRequestId", 44);
+        draft.useFileVersion(1);
+        var item = new PrintRequestItem(44, 12, 3, "Black", "STANDARD", 20,
+                new BigDecimal("12.50"), null, null, 1, "Original");
+        ReflectionTestUtils.setField(item, "printRequestItemId", 45);
+        var stored = new ArrayList<PrintRequestSpecVersion>();
+        when(requests.findOwnedByIdForUpdate(44, 7)).thenReturn(Optional.of(draft));
+        when(requests.findByPrintRequestIdAndCustomerUserId(44, 7)).thenReturn(Optional.of(draft));
+        when(items.findByPrintRequestIdOrderByPrintRequestItemIdAsc(44)).thenReturn(List.of(item));
+        when(versions.saveAndFlush(any())).thenAnswer(call -> {
+            PrintRequestSpecVersion value = call.getArgument(0);
+            ReflectionTestUtils.setField(value, "specVersionId", 100 + stored.size());
+            stored.add(value);
+            return value;
+        });
+        when(versions.findByPrintRequestIdAndVersion(44, 1)).thenAnswer(call ->
+                stored.isEmpty() ? Optional.empty() : Optional.of(stored.getFirst()));
+        when(versions.findByPrintRequestIdOrderByVersionDesc(44)).thenAnswer(call ->
+                stored.reversed());
+        when(materials.findByIdForUpdate(3)).thenReturn(Optional.of(
+                new PrintMaterial("PLA", "FDM", "GRAM", null, true)));
+
+        service.recordInitial(7, 44);
+        assertEquals(1, draft.getCurrentSpecVersion());
+        assertEquals(1, draft.getCurrentFileVersion());
+        assertNull(draft.getSubmittedAt());
+        assertEquals(1, stored.getFirst().getVersion());
+        assertEquals("Black", mapper.readTree(stored.getFirst().getSpecificationData())
+                .get("items").get(0).get("color").asText());
+        assertFalse(stored.getFirst().getSpecificationData().contains("modelVersionId"));
+        String oldSnapshot = stored.getFirst().getSpecificationData();
+        Instant oldCreatedAt = stored.getFirst().getCreatedAt();
+
+        ReflectionTestUtils.setField(draft, "previewConfirmed", true);
+        var updated = service.update(7, 44, new UpdatePrintRequestSpecificationRequest(1,
+                List.of(new UpdatePrintRequestSpecificationItemRequest(45, 3, "White",
+                        "STANDARD", 30, new BigDecimal("15.00"), null, null, 2, "Updated"))));
+        assertEquals(2, updated.version());
+        assertTrue(updated.isCurrent());
+        assertEquals("White", updated.specificationData().get("items").get(0)
+                .get("color").asText());
+        assertEquals(2, draft.getCurrentSpecVersion());
+        assertEquals(1, draft.getCurrentFileVersion());
+        assertFalse(draft.isPreviewConfirmed());
+        assertEquals(12, item.getModelVersionId());
+        assertEquals("White", item.getColor());
+        assertEquals(2, item.getQuantity());
+        assertEquals(oldSnapshot, stored.getFirst().getSpecificationData());
+        assertEquals(oldCreatedAt, stored.getFirst().getCreatedAt());
+        assertEquals(List.of(2, 1), service.history(7, 44).stream()
+                .map(value -> value.version()).toList());
+        assertFalse(service.history(7, 44).get(1).isCurrent());
+        verify(items).saveAndFlush(item);
+        verify(requests, times(2)).saveAndFlush(draft);
+    }
+
+    @Test
+    void updateRejectsLegacyStaleAndLockedWithoutWriting() {
+        var requests = mock(PrintRequestRepository.class);
+        var items = mock(PrintRequestItemRepository.class);
+        var versions = mock(PrintRequestSpecVersionRepository.class);
+        var materials = mock(PrintMaterialRepository.class);
+        var service = new PrintRequestSpecificationService(requests, items, versions,
+                materials, JsonMapper.builder().build());
+        var input = new UpdatePrintRequestSpecificationRequest(1,
+                List.of(new UpdatePrintRequestSpecificationItemRequest(45, 3, "White",
+                        "STANDARD", null, null, null, null, 1, null)));
+        assertEquals(404, assertThrows(ApiException.class,
+                () -> service.update(8, 44, input)).getStatus().value());
+        var draft = new PrintRequest(7, null);
+        when(requests.findOwnedByIdForUpdate(44, 7)).thenReturn(Optional.of(draft));
+        assertEquals(409, assertThrows(ApiException.class,
+                () -> service.update(7, 44, input)).getStatus().value());
+        draft.useSpecVersion(1);
+        assertEquals(409, assertThrows(ApiException.class,
+                () -> service.update(7, 44,
+                        new UpdatePrintRequestSpecificationRequest(2, input.items())))
+                .getStatus().value());
+        ReflectionTestUtils.setField(draft, "lockedAt", Instant.now());
+        assertEquals(409, assertThrows(ApiException.class,
+                () -> service.update(7, 44, input)).getStatus().value());
+        verifyNoInteractions(items, materials);
+        verify(versions, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void incompatibleMaterialAndInvalidDimensionsDoNotAdvanceSpecPointer() {
+        var requests = mock(PrintRequestRepository.class);
+        var items = mock(PrintRequestItemRepository.class);
+        var versions = mock(PrintRequestSpecVersionRepository.class);
+        var materials = mock(PrintMaterialRepository.class);
+        var service = new PrintRequestSpecificationService(requests, items, versions,
+                materials, JsonMapper.builder().build());
+        var draft = new PrintRequest(7, null);
+        draft.useSpecVersion(1);
+        var item = new PrintRequestItem(44, 12, 3, null, null, null,
+                null, null, null, 1, null);
+        ReflectionTestUtils.setField(item, "printRequestItemId", 45);
+        when(requests.findOwnedByIdForUpdate(44, 7)).thenReturn(Optional.of(draft));
+        when(versions.findByPrintRequestIdAndVersion(44, 1)).thenReturn(Optional.of(
+                new PrintRequestSpecVersion(44, 1, "{\"items\":[]}", 7)));
+        when(items.findByPrintRequestIdOrderByPrintRequestItemIdAsc(44)).thenReturn(List.of(item));
+        when(materials.findByIdForUpdate(3)).thenReturn(Optional.of(
+                new PrintMaterial("RESIN", "SLA", "ML", null, true)));
+        var invalidInfill = new UpdatePrintRequestSpecificationRequest(1,
+                List.of(new UpdatePrintRequestSpecificationItemRequest(45, 3, null,
+                        null, 20, null, null, null, 1, null)));
+        assertEquals(400, assertThrows(ApiException.class,
+                () -> service.update(7, 44, invalidInfill)).getStatus().value());
+        var invalidDimension = new UpdatePrintRequestSpecificationRequest(1,
+                List.of(new UpdatePrintRequestSpecificationItemRequest(45, 3, null,
+                        null, null, BigDecimal.ZERO, null, null, 1, null)));
+        assertEquals(400, assertThrows(ApiException.class,
+                () -> service.update(7, 44, invalidDimension)).getStatus().value());
+        assertEquals(1, draft.getCurrentSpecVersion());
+        verify(items, never()).saveAndFlush(any());
+        verify(versions, never()).saveAndFlush(any());
     }
 
     private static CreatePrintRequestItemRequest item(Integer versionId, Integer materialId,

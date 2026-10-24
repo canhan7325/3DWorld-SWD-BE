@@ -1,6 +1,6 @@
-package com.project.w_3d_world.features.printing.service;
+package com.project.w_3d_world.features.printing.service.impl;
 
-import com.project.w_3d_world.common.exception.ApiException;
+import com.project.w_3d_world.features.printing.exception.PrintingErrors;
 import com.project.w_3d_world.features.model.download.AuthorizedModelDownload;
 import com.project.w_3d_world.features.model.repository.ModelFileRepository;
 import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
@@ -8,7 +8,6 @@ import com.project.w_3d_world.features.model.service.ModelDownloadService;
 import com.project.w_3d_world.features.printing.repository.PrintRequestItemRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,22 +24,19 @@ public class PrintRequestFileDownloadService {
 
     public AuthorizedModelDownload open(Integer customerUserId, Integer printRequestId) {
         var request = requestRepository.findByPrintRequestIdAndCustomerUserId(printRequestId, customerUserId)
-                .orElseThrow(PrintRequestFileDownloadService::notFound);
+                .orElseThrow(PrintingErrors::requestFileNotFound);
         if (request.getCurrentFileVersion() != null) {
             return fileVersionService.download(customerUserId, printRequestId,
                     request.getCurrentFileVersion());
         }
         var items = itemRepository.findByPrintRequestIdOrderByPrintRequestItemIdAsc(printRequestId);
-        if (items.isEmpty() || items.getFirst().getModelVersionId() == null) throw notFound();
+        if (items.isEmpty() || items.getFirst().getModelVersionId() == null) throw PrintingErrors.requestFileNotFound();
         Integer versionId = items.getFirst().getModelVersionId();
-        if (items.stream().anyMatch(item -> !versionId.equals(item.getModelVersionId()))) throw notFound();
-        var version = versionRepository.findById(versionId).orElseThrow(PrintRequestFileDownloadService::notFound);
+        if (items.stream().anyMatch(item -> !versionId.equals(item.getModelVersionId()))) throw PrintingErrors.requestFileNotFound();
+        var version = versionRepository.findById(versionId).orElseThrow(PrintingErrors::requestFileNotFound);
         var file = fileRepository.findPrimaryByModelVersionId(versionId)
-                .orElseThrow(PrintRequestFileDownloadService::notFound);
+                .orElseThrow(PrintingErrors::requestFileNotFound);
         return modelDownloadService.openAuthorizedDownload(customerUserId, version.getModelId(), file.getFileId());
     }
 
-    private static ApiException notFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "Print Request file was not found.");
-    }
 }

@@ -1,6 +1,7 @@
 package com.project.w_3d_world.features.printing.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
+import com.project.w_3d_world.features.printing.exception.PrintingErrors;
 import com.project.w_3d_world.features.audit.entity.AuditLog;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
 import com.project.w_3d_world.features.printing.dto.request.CreatePrintMaterialRequest;
@@ -78,7 +79,7 @@ public class AdminPrintMaterialServiceImpl implements AdminPrintMaterialService 
         PrintMaterialServiceValidation.validateCost(request.estimatedUnitCost());
 
         lockActiveIdentityNamespace();
-        if (repository.existsActiveIdentity(PrintMaterialServiceValidation.normalizedName(name), technology)) throw duplicate();
+        if (repository.existsActiveIdentity(PrintMaterialServiceValidation.normalizedName(name), technology)) throw PrintingErrors.duplicateActiveMaterial();
         PrintMaterial material = repository.saveAndFlush(
                 new PrintMaterial(name, technology, unit, request.estimatedUnitCost()));
         Map<String, Object> created = new LinkedHashMap<>();
@@ -132,7 +133,7 @@ public class AdminPrintMaterialServiceImpl implements AdminPrintMaterialService 
             PrintMaterialServiceValidation.validateLegacyIdentity(
                     material.getTechnologyCode(), material.getUnit(), technology, unit);
             if (repository.existsOtherActiveIdentity(materialId,
-                    PrintMaterialServiceValidation.normalizedName(name), technology)) throw duplicate();
+                    PrintMaterialServiceValidation.normalizedName(name), technology)) throw PrintingErrors.duplicateActiveMaterial();
             material.activate();
         } else material.deactivate();
         repository.saveAndFlush(material);
@@ -167,8 +168,4 @@ public class AdminPrintMaterialServiceImpl implements AdminPrintMaterialService 
         return oldCost == null ? newCost == null : newCost != null && oldCost.compareTo(newCost) == 0;
     }
 
-    private static ApiException duplicate() {
-        return new ApiException(org.springframework.http.HttpStatus.CONFLICT,
-                "An active Material with this name and technology already exists.");
-    }
 }

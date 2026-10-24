@@ -26,7 +26,9 @@ import java.util.*;
 import java.util.zip.CRC32;
 import java.util.zip.ZipFile;
 
-import static com.project.w_3d_world.features.model.storage.ModelStorageException.Code.*;
+import com.project.w_3d_world.features.model.exception.ModelStorageException;
+import static com.project.w_3d_world.features.model.exception.ModelStorageException.Code.*;
+import static com.project.w_3d_world.features.model.exception.ModelErrors.invalidContent;
 
 /**
  * Bounded structural inspection, not a mesh/printability validator or a malware scanner.
@@ -108,7 +110,7 @@ public final class ModelFileValidator {
                 case "json" -> json(bytes);
                 case "3mf" -> threeMf(file, bytes);
                 case "png", "jpg", "jpeg" -> image(bytes, format.extension());
-                default -> throw invalid();
+                default -> throw invalidContent();
             }
         } catch (ModelStorageException exception) {
             throw exception;
@@ -246,7 +248,7 @@ public final class ModelFileValidator {
                     }
                     // Names/references are retained as data; never opened or fetched here.
                     case "o", "g", "s", "mtllib", "usemtl" -> require(parts.length >= 2);
-                    default -> throw invalid();
+                    default -> throw invalidContent();
                 }
             }
         }
@@ -431,10 +433,6 @@ public final class ModelFileValidator {
     }
 
     private static void require(boolean valid) {
-        if (!valid) throw invalid();
-    }
-
-    private static ModelStorageException invalid() {
-        return new ModelStorageException(INVALID_CONTENT, "File content is malformed or unsupported.");
+        if (!valid) throw invalidContent();
     }
 }

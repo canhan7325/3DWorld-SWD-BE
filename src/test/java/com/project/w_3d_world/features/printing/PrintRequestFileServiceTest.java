@@ -20,9 +20,10 @@ import com.project.w_3d_world.features.printing.entity.PrintRequestFileVersion;
 import com.project.w_3d_world.features.printing.repository.PrintRequestFileVersionRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestItemRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestRepository;
-import com.project.w_3d_world.features.printing.service.PrintRequestFileCreateService;
-import com.project.w_3d_world.features.printing.service.PrintRequestFileDownloadService;
-import com.project.w_3d_world.features.printing.service.PrintRequestFileVersionService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileCreateService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileDownloadService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileVersionService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestSpecificationService;
 import com.project.w_3d_world.features.printing.service.PrintRequestService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -46,7 +47,8 @@ class PrintRequestFileServiceTest {
         ModelUploadService uploader = mock(ModelUploadService.class);
         PrintRequestService requests = mock(PrintRequestService.class);
         var versionsService = mock(PrintRequestFileVersionService.class);
-        var service = new PrintRequestFileCreateService(uploader, requests, versionsService);
+        var specs = mock(PrintRequestSpecificationService.class);
+        var service = new PrintRequestFileCreateService(uploader, requests, versionsService, specs);
         byte[] bytes = {1, 2, 3, 4};
         var file = new MockMultipartFile("file", "shape.glb", "application/octet-stream", bytes);
         when(uploader.uploadModel(eq(7), eq(new CreateModelRequest("shape", null)), eq(file)))
@@ -58,6 +60,7 @@ class PrintRequestFileServiceTest {
         var input = org.mockito.ArgumentCaptor.forClass(CreatePrintRequestRequest.class);
         verify(requests).createDraft(eq(7), input.capture());
         verify(versionsService).recordInitial(eq(7), eq(44), any(), eq("shape.glb"));
+        verify(specs).recordInitial(7, 44);
         assertTrue(input.getValue().rightsDeclarationAccepted());
         assertEquals(1, input.getValue().items().size());
         assertEquals(12, input.getValue().items().getFirst().modelVersionId());
@@ -73,7 +76,8 @@ class PrintRequestFileServiceTest {
         ModelUploadService uploader = mock(ModelUploadService.class);
         PrintRequestService requests = mock(PrintRequestService.class);
         var service = new PrintRequestFileCreateService(uploader, requests,
-                mock(PrintRequestFileVersionService.class));
+                mock(PrintRequestFileVersionService.class),
+                mock(PrintRequestSpecificationService.class));
         var file = new MockMultipartFile("file", "shape.glb", null, new byte[] {1});
         assertThrows(ApiException.class, () -> service.create(7, null, true, file));
         assertThrows(ApiException.class, () -> service.create(7, 3, false, file));
@@ -155,6 +159,7 @@ class PrintRequestFileServiceTest {
         });
 
         service.recordInitial(7, 44, firstUpload, "shape.stl");
+        request.useSpecVersion(1);
         assertEquals(1, request.getCurrentFileVersion());
         assertFalse(request.isPreviewConfirmed());
         assertNull(request.getSubmittedAt());
@@ -174,6 +179,7 @@ class PrintRequestFileServiceTest {
         assertEquals(2, response.version());
         assertTrue(response.current());
         assertEquals(2, request.getCurrentFileVersion());
+        assertEquals(1, request.getCurrentSpecVersion());
         assertFalse(request.isPreviewConfirmed());
         assertEquals(13, item.getModelVersionId());
         assertEquals(1, saved.getFirst().getVersion());

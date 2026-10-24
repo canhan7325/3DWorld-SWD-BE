@@ -1,6 +1,7 @@
 package com.project.w_3d_world.features.printing.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
+import com.project.w_3d_world.features.printing.exception.PrintingErrors;
 import com.project.w_3d_world.features.audit.entity.AuditLog;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
 import com.project.w_3d_world.features.model.enums.ModelFileRole;
@@ -16,8 +17,10 @@ import com.project.w_3d_world.features.printing.dto.response.PrintRequestRespons
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestSummaryResponse;
 import com.project.w_3d_world.features.printing.entity.PrintRequest;
 import com.project.w_3d_world.features.printing.entity.PrintRequestItem;
+import com.project.w_3d_world.features.printing.entity.PrintRequestStatusHistory;
 import com.project.w_3d_world.features.printing.repository.PrintRequestItemRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestRepository;
+import com.project.w_3d_world.features.printing.repository.PrintRequestStatusHistoryRepository;
 import com.project.w_3d_world.features.printing.repository.PrintMaterialRepository;
 import com.project.w_3d_world.features.printing.service.PrintRequestService;
 import com.project.w_3d_world.features.printing.validation.PrintMaterialCompatibilityPolicy;
@@ -52,6 +55,7 @@ public class PrintRequestServiceImpl implements PrintRequestService {
     private final ModelFileRepository fileRepository;
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
+    private final PrintRequestStatusHistoryRepository statusHistoryRepository;
 
     @Override
     @Transactional(readOnly = false)
@@ -76,10 +80,13 @@ public class PrintRequestServiceImpl implements PrintRequestService {
             PrintRequestCreateValidation.validateInfill(material.getTechnologyCode(), item.infillPercent());
         }
 
-        PrintRequest savedRequest = requestRepository.saveAndFlush(
-                new PrintRequest(customerUserId, request.customerNotes()));
+        PrintRequest draft = new PrintRequest(customerUserId, request.customerNotes());
+        draft.confirmCopyrightDeclaration();
+        PrintRequest savedRequest = requestRepository.saveAndFlush(draft);
         Integer requestId = savedRequest.getPrintRequestId();
         if (requestId == null) throw new IllegalStateException("Print Request ID was not generated.");
+        statusHistoryRepository.saveAndFlush(new PrintRequestStatusHistory(
+                requestId, null, "DRAFT", customerUserId, null, null));
 
         List<PrintRequestItemResponse> responses = new ArrayList<>();
         List<Integer> modelVersionIds = new ArrayList<>();
@@ -110,9 +117,9 @@ public class PrintRequestServiceImpl implements PrintRequestService {
 
     private void requireOwnedModelFile(Integer customerUserId, Integer modelVersionId) {
         var version = versionRepository.findById(modelVersionId)
-                .orElseThrow(PrintRequestServiceImpl::sourceNotFound);
+                .orElseThrow(PrintingErrors::modelVersionNotFound);
         modelRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(
-                version.getModelId(), customerUserId).orElseThrow(PrintRequestServiceImpl::sourceNotFound);
+                version.getModelId(), customerUserId).orElseThrow(PrintingErrors::modelVersionNotFound);
         var file = fileRepository.findPrimaryByModelVersionId(modelVersionId)
                 .orElseThrow(() -> ApiException.invalidRequest("Model Version has no eligible primary file."));
         if (file.getFileRole() == null || !java.util.Set.of(
@@ -128,10 +135,6 @@ public class PrintRequestServiceImpl implements PrintRequestService {
         } catch (RuntimeException exception) {
             throw ApiException.invalidRequest("Model Version has no eligible primary file.");
         }
-    }
-
-    private static ApiException sourceNotFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "Model Version was not found.");
     }
 
     @Override

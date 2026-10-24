@@ -1,6 +1,7 @@
 package com.project.w_3d_world.features.model.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
+import com.project.w_3d_world.features.model.exception.ModelErrors;
 import com.project.w_3d_world.features.model.dto.request.RestoreModelVersionRequest;
 import com.project.w_3d_world.features.model.dto.response.RestoreModelVersionResponse;
 import com.project.w_3d_world.features.model.dto.response.RestoredModelFileResponse;
@@ -51,12 +52,12 @@ public class ModelVersionRestoreServiceImpl implements ModelVersionRestoreServic
         }
 
         modelRepository.findOwnedActiveByIdForUpdate(modelId, authenticatedUserId)
-                .orElseThrow(ModelVersionRestoreServiceImpl::notFound);
+                .orElseThrow(ModelErrors::modelOrVersionNotFound);
         ModelVersion source = versionRepository.findByModelVersionIdAndModelId(versionId, modelId)
-                .orElseThrow(ModelVersionRestoreServiceImpl::notFound);
+                .orElseThrow(ModelErrors::modelOrVersionNotFound);
         ModelVersion latest = versionRepository
                 .findByModelIdOrderByVersionNumberDesc(modelId, PageRequest.of(0, 1))
-                .stream().findFirst().orElseThrow(ModelVersionRestoreServiceImpl::notFound);
+                .stream().findFirst().orElseThrow(ModelErrors::modelOrVersionNotFound);
         if (!latest.getModelVersionId().equals(request.baseVersionId())) {
             throw new ApiException(HttpStatus.CONFLICT, "The base Model Version is stale.");
         }
@@ -147,7 +148,4 @@ public class ModelVersionRestoreServiceImpl implements ModelVersionRestoreServic
         });
     }
 
-    private static ApiException notFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "Model or version was not found.");
-    }
 }

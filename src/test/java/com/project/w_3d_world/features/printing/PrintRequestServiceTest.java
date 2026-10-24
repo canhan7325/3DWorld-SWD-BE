@@ -7,9 +7,20 @@ import com.project.w_3d_world.features.model.repository.ModelFileRepository;
 import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
 import com.project.w_3d_world.features.printing.entity.PrintRequest;
 import com.project.w_3d_world.features.printing.entity.PrintRequestItem;
+import com.project.w_3d_world.features.printing.entity.PrintRequestFileVersion;
+import com.project.w_3d_world.features.printing.entity.PrintRequestSpecVersion;
+import com.project.w_3d_world.features.printing.entity.PrintRequestStatusHistory;
+import com.project.w_3d_world.features.printing.dto.request.ConfirmPrintRequestPreviewRequest;
+import com.project.w_3d_world.features.printing.dto.request.CancelPrintRequestRequest;
+import com.project.w_3d_world.features.printing.dto.request.SubmitPrintRequestRequest;
+import com.project.w_3d_world.features.printing.repository.PrintRequestFileVersionRepository;
+import com.project.w_3d_world.features.printing.repository.PrintRequestSpecVersionRepository;
 import com.project.w_3d_world.features.printing.repository.PrintMaterialRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestItemRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestRepository;
+import com.project.w_3d_world.features.printing.repository.PrintRequestStatusHistoryRepository;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestStateService;
+import com.project.w_3d_world.features.printing.validation.PrintRequestSubmissionValidation;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +29,8 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
@@ -35,15 +48,207 @@ class PrintRequestServiceTest {
     private PrintRequestRepository requests;
     private PrintRequestItemRepository items;
     private PrintRequestServiceImpl service;
+    private PrintRequestStateService states;
+    private PrintRequestFileVersionRepository fileVersions;
+    private PrintRequestSpecVersionRepository specVersions;
+    private PrintRequestStatusHistoryRepository histories;
+    private PrintRequestSubmissionValidation submissionValidation;
 
     @BeforeEach
     void setUp() {
         requests = mock(PrintRequestRepository.class);
         items = mock(PrintRequestItemRepository.class);
+        fileVersions = mock(PrintRequestFileVersionRepository.class);
+        specVersions = mock(PrintRequestSpecVersionRepository.class);
+        histories = mock(PrintRequestStatusHistoryRepository.class);
+        submissionValidation = mock(PrintRequestSubmissionValidation.class);
         service = new PrintRequestServiceImpl(requests, items,
                 mock(PrintMaterialRepository.class), mock(ModelVersionRepository.class),
                 mock(Model3DRepository.class), mock(ModelFileRepository.class),
-                mock(AuditLogRepository.class), JsonMapper.builder().build());
+                mock(AuditLogRepository.class), JsonMapper.builder().build(),
+                histories);
+        states = new PrintRequestStateService(requests, fileVersions, specVersions,
+                histories, items, submissionValidation);
+    }
+
+    @Test
+    void previewConfirmationRequiresOwnedCurrentFileAndSpec() {
+        PrintRequest request = request(10, 7);
+        request.useFileVersion(2);
+        request.useSpecVersion(3);
+        when(requests.findOwnedByIdForUpdate(10, 7)).thenReturn(Optional.of(request));
+        when(fileVersions.findByPrintRequestIdAndVersion(10, 2))
+                .thenReturn(Optional.of(mock(PrintRequestFileVersion.class)));
+        when(specVersions.findByPrintRequestIdAndVersion(10, 3))
+                .thenReturn(Optional.of(mock(PrintRequestSpecVersion.class)));
+
+        var result = states.confirmPreview(7, 10, new ConfirmPrintRequestPreviewRequest(2, 3));
+
+        assertTrue(result.previewConfirmed());
+        assertEquals(2, result.currentFileVersion());
+        assertEquals(3, result.currentSpecVersion());
+        assertNotNull(result.updatedAt());
+        verify(requests).saveAndFlush(request);
+        request.useFileVersion(4);
+        assertFalse(request.isPreviewConfirmed());
+        request.confirmPreview();
+        request.useSpecVersion(5);
+        assertFalse(request.isPreviewConfirmed());
+    }
+
+    @Test
+    void previewConfirmationRejectsOtherOwnerAndStaleOrMissingVersions() {
+        var expected = new ConfirmPrintRequestPreviewRequest(2, 3);
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ApiException.class,
+                () -> states.confirmPreview(7, 10, expected)).getStatus());
+        verify(requests).findOwnedByIdForUpdate(10, 7);
+        verify(requests, never()).saveAndFlush(any());
+
+        PrintRequest request = request(10, 7);
+        request.useFileVersion(2);
+        request.useSpecVersion(3);
+        when(requests.findOwnedByIdForUpdate(10, 7)).thenReturn(Optional.of(request));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> states.confirmPreview(7, 10,
+                        new ConfirmPrintRequestPreviewRequest(1, 3))).getStatus());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> states.confirmPreview(7, 10, expected)).getStatus());
+        assertFalse(request.isPreviewConfirmed());
+        verify(requests, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void statusHistoryIsOwnerScopedAndOrderedByTimestampThenId() {
+        PrintRequest request = request(10, 7);
+        when(requests.findByPrintRequestIdAndCustomerUserId(10, 7))
+                .thenReturn(Optional.of(request));
+        var initial = new PrintRequestStatusHistory(10, null, "DRAFT", 7, null, null);
+        ReflectionTestUtils.setField(initial, "printStatusHistoryId", 1);
+        when(histories.findByPrintRequestIdOrderByChangedAtAscPrintStatusHistoryIdAsc(10))
+                .thenReturn(List.of(initial));
+
+        var result = states.history(7, 10);
+
+        assertEquals(1, result.size());
+        assertEquals(1, result.getFirst().historyId());
+        assertEquals("DRAFT", result.getFirst().toStatus());
+        assertEquals(7, result.getFirst().changedByUserId());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ApiException.class,
+                () -> states.history(8, 10)).getStatus());
+        verify(histories, times(1))
+                .findByPrintRequestIdOrderByChangedAtAscPrintStatusHistoryIdAsc(10);
+    }
+
+    @Test
+    void submitRequiresCurrentVersionsAndBothConfirmationsAndWritesHistoryOnce() {
+        PrintRequest request = request(10, 7);
+        request.useFileVersion(2);
+        request.useSpecVersion(3);
+        request.confirmCopyrightDeclaration();
+        request.confirmPreview();
+        when(requests.findOwnedByIdForUpdate(10, 7)).thenReturn(Optional.of(request));
+        when(fileVersions.findByPrintRequestIdAndVersion(10, 2))
+                .thenReturn(Optional.of(mock(PrintRequestFileVersion.class)));
+        when(specVersions.findByPrintRequestIdAndVersion(10, 3))
+                .thenReturn(Optional.of(mock(PrintRequestSpecVersion.class)));
+        var input = new SubmitPrintRequestRequest(2, 3);
+
+        var result = states.submit(7, 10, input);
+
+        assertEquals("SUBMITTED", result.status());
+        assertNotNull(result.submittedAt());
+        assertEquals(result.submittedAt(), result.updatedAt());
+        verify(submissionValidation).validate(eq(request), any(), anyList());
+        verify(requests).saveAndFlush(request);
+        var saved = ArgumentCaptor.forClass(PrintRequestStatusHistory.class);
+        verify(histories).saveAndFlush(saved.capture());
+        assertEquals("DRAFT", saved.getValue().getFromStatus());
+        assertEquals("SUBMITTED", saved.getValue().getToStatus());
+        assertEquals(7, saved.getValue().getChangedByUserId());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> states.submit(7, 10, input)).getStatus());
+        verify(histories, times(1)).saveAndFlush(any());
+    }
+
+    @Test
+    void submitRejectsUnconfirmedAndStaleDraftWithoutWrites() {
+        PrintRequest request = request(10, 7);
+        request.useFileVersion(2);
+        request.useSpecVersion(3);
+        when(requests.findOwnedByIdForUpdate(10, 7)).thenReturn(Optional.of(request));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> states.submit(7, 10, new SubmitPrintRequestRequest(1, 3))).getStatus());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> states.submit(7, 10, new SubmitPrintRequestRequest(2, 3))).getStatus());
+        assertEquals("DRAFT", request.getStatus());
+        assertNull(request.getSubmittedAt());
+        verifyNoInteractions(histories, submissionValidation);
+        verify(requests, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void cancelRecordsActualTransitionAndRejectsReplay() {
+        PrintRequest request = request(10, 7);
+        request.submit();
+        when(requests.findOwnedByIdForUpdate(10, 7)).thenReturn(Optional.of(request));
+
+        var result = states.cancel(7, 10, new CancelPrintRequestRequest("No longer needed"));
+
+        assertEquals("CANCELLED", result.status());
+        assertNotNull(result.cancelledAt());
+        assertEquals("No longer needed", request.getCancellationReason());
+        var saved = ArgumentCaptor.forClass(PrintRequestStatusHistory.class);
+        verify(histories).saveAndFlush(saved.capture());
+        assertEquals("SUBMITTED", saved.getValue().getFromStatus());
+        assertEquals("CANCELLED", saved.getValue().getToStatus());
+        assertEquals("No longer needed", saved.getValue().getReason());
+        assertEquals(7, saved.getValue().getChangedByUserId());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> states.cancel(7, 10, new CancelPrintRequestRequest("Again"))).getStatus());
+        verify(histories, times(1)).saveAndFlush(any());
+    }
+
+    @Test
+    void cancelDraftUsesDraftAsHistorySourceAndMutationsUseRepositoryLock() throws Exception {
+        PrintRequest request = request(10, 7);
+        when(requests.findOwnedByIdForUpdate(10, 7)).thenReturn(Optional.of(request));
+
+        states.cancel(7, 10, new CancelPrintRequestRequest("Changed plans"));
+
+        var saved = ArgumentCaptor.forClass(PrintRequestStatusHistory.class);
+        verify(histories).saveAndFlush(saved.capture());
+        assertEquals("DRAFT", saved.getValue().getFromStatus());
+        assertEquals("CANCELLED", saved.getValue().getToStatus());
+        assertEquals(LockModeType.PESSIMISTIC_WRITE,
+                PrintRequestRepository.class.getMethod("findOwnedByIdForUpdate",
+                        Integer.class, Integer.class).getAnnotation(Lock.class).value());
+        for (var method : List.of("confirmPreview", "submit", "cancel")) {
+            var inputType = switch (method) {
+                case "confirmPreview" -> ConfirmPrintRequestPreviewRequest.class;
+                case "submit" -> SubmitPrintRequestRequest.class;
+                default -> CancelPrintRequestRequest.class;
+            };
+            assertFalse(PrintRequestStateService.class.getMethod(method,
+                    Integer.class, Integer.class, inputType)
+                    .getAnnotation(Transactional.class).readOnly());
+        }
+    }
+
+    @Test
+    void cancelRejectsMissingOwnerInvalidReasonAndLockedRequest() {
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ApiException.class,
+                () -> states.cancel(7, 10,
+                        new CancelPrintRequestRequest("No longer needed"))).getStatus());
+        PrintRequest request = request(10, 7);
+        when(requests.findOwnedByIdForUpdate(10, 7)).thenReturn(Optional.of(request));
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ApiException.class,
+                () -> states.cancel(7, 10, new CancelPrintRequestRequest(" "))).getStatus());
+        ReflectionTestUtils.setField(request, "lockedAt", Instant.now());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> states.cancel(7, 10,
+                        new CancelPrintRequestRequest("No longer needed"))).getStatus());
+        verifyNoInteractions(histories);
+        verify(requests, never()).saveAndFlush(any());
     }
 
     @Test

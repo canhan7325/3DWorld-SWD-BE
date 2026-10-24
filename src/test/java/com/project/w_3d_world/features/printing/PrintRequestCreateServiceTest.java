@@ -18,10 +18,14 @@ import com.project.w_3d_world.features.printing.dto.request.CreatePrintRequestRe
 import com.project.w_3d_world.features.printing.entity.PrintMaterial;
 import com.project.w_3d_world.features.printing.entity.PrintRequest;
 import com.project.w_3d_world.features.printing.entity.PrintRequestItem;
+import com.project.w_3d_world.features.printing.entity.PrintRequestFileVersion;
+import com.project.w_3d_world.features.printing.entity.PrintRequestStatusHistory;
 import com.project.w_3d_world.features.printing.repository.PrintMaterialRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestItemRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestRepository;
+import com.project.w_3d_world.features.printing.repository.PrintRequestStatusHistoryRepository;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestServiceImpl;
+import com.project.w_3d_world.features.printing.validation.PrintRequestSubmissionValidation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -48,6 +52,7 @@ class PrintRequestCreateServiceTest {
     private Model3DRepository models;
     private ModelFileRepository files;
     private AuditLogRepository audits;
+    private PrintRequestStatusHistoryRepository histories;
     private PrintRequestServiceImpl service;
 
     @BeforeEach
@@ -59,8 +64,9 @@ class PrintRequestCreateServiceTest {
         models = mock(Model3DRepository.class);
         files = mock(ModelFileRepository.class);
         audits = mock(AuditLogRepository.class);
+        histories = mock(PrintRequestStatusHistoryRepository.class);
         service = new PrintRequestServiceImpl(requests, items, materials, versions,
-                models, files, audits, JsonMapper.builder().build());
+                models, files, audits, JsonMapper.builder().build(), histories);
         when(versions.findById(12)).thenReturn(Optional.of(version()));
         when(models.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(5, 7))
                 .thenReturn(Optional.of(model()));
@@ -94,6 +100,15 @@ class PrintRequestCreateServiceTest {
         verify(requests).saveAndFlush(parent.capture());
         assertEquals(7, parent.getValue().getCustomerUserId());
         assertEquals("DRAFT", parent.getValue().getStatus());
+        assertTrue(parent.getValue().isCopyrightConfirmed());
+        assertFalse(parent.getValue().isPreviewConfirmed());
+        var history = ArgumentCaptor.forClass(PrintRequestStatusHistory.class);
+        verify(histories).saveAndFlush(history.capture());
+        assertEquals(44, history.getValue().getPrintRequestId());
+        assertNull(history.getValue().getFromStatus());
+        assertEquals("DRAFT", history.getValue().getToStatus());
+        assertEquals(7, history.getValue().getChangedByUserId());
+        assertNotNull(history.getValue().getChangedAt());
         var child = ArgumentCaptor.forClass(PrintRequestItem.class);
         verify(items).saveAndFlush(child.capture());
         assertEquals(44, child.getValue().getPrintRequestId());
@@ -109,12 +124,13 @@ class PrintRequestCreateServiceTest {
         assertTrue(audit.getValue().getMetadata().contains("POD_RIGHTS_V1"));
         assertTrue(audit.getValue().getMetadata().contains("modelVersionIds"));
         assertTrue(audit.getValue().getMetadata().contains("acceptedAt"));
-        var order = inOrder(versions, models, files, materials, requests, items, audits);
+        var order = inOrder(versions, models, files, materials, requests, items, audits, histories);
         order.verify(versions).findById(12);
         order.verify(models).findByModelIdAndOwnerUserIdAndDeletedAtIsNull(5, 7);
         order.verify(files).findPrimaryByModelVersionId(12);
         order.verify(materials).findByIdForUpdate(3);
         order.verify(requests).saveAndFlush(any());
+        order.verify(histories).saveAndFlush(any());
         order.verify(items).saveAndFlush(any());
         order.verify(audits).saveAndFlush(any());
     }
@@ -157,7 +173,7 @@ class PrintRequestCreateServiceTest {
         when(models.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(5, 7)).thenReturn(Optional.empty());
         assertEquals(HttpStatus.NOT_FOUND, assertThrows(ApiException.class,
                 () -> service.createDraft(7, request(item(20, null)))).getStatus());
-        verifyNoInteractions(requests, items, audits);
+        verifyNoInteractions(requests, items, audits, histories);
     }
 
     @Test
@@ -167,7 +183,7 @@ class PrintRequestCreateServiceTest {
         when(files.findPrimaryByModelVersionId(12)).thenReturn(Optional.of(
                 new ModelFile(12, ModelFileRole.PREVIEW, "png", "key", "image/png", "hash", 20L, true)));
         assertThrows(ApiException.class, () -> service.createDraft(7, request(item(20, null))));
-        verifyNoInteractions(requests, items, audits);
+        verifyNoInteractions(requests, items, audits, histories);
     }
 
     @Test
@@ -178,7 +194,7 @@ class PrintRequestCreateServiceTest {
         assertThrows(ApiException.class, () -> service.createDraft(7, request(item(20, null))));
         when(materials.findByIdForUpdate(3)).thenReturn(Optional.of(material("PLA", "SLA", "ML", true)));
         assertThrows(ApiException.class, () -> service.createDraft(7, request(item(20, null))));
-        verifyNoInteractions(requests, items, audits);
+        verifyNoInteractions(requests, items, audits, histories);
     }
 
     @Test
@@ -199,7 +215,7 @@ class PrintRequestCreateServiceTest {
         assertThrows(ApiException.class, () -> service.createDraft(7, request(item(101, null))));
         assertThrows(ApiException.class, () -> service.createDraft(7, request(
                 new CreatePrintRequestItemRequest(12, 3, null, null, null, null, null, null, 0, null))));
-        verifyNoInteractions(versions, models, files, materials, requests, items, audits);
+        verifyNoInteractions(versions, models, files, materials, requests, items, audits, histories);
     }
 
     @Test
@@ -221,6 +237,33 @@ class PrintRequestCreateServiceTest {
         } catch (NoSuchMethodException exception) {
             fail(exception);
         }
+    }
+
+    @Test
+    void submissionValidationRechecksOwnedPrimarySourceAndMaterial() {
+        var validator = new PrintRequestSubmissionValidation(versions, models, files, materials);
+        var primary = file();
+        ReflectionTestUtils.setField(primary, "fileId", 91);
+        when(files.findPrimaryByModelVersionId(12)).thenReturn(Optional.of(primary));
+        var current = new PrintRequestFileVersion(44, 1, "model.glb", 100L,
+                "model/gltf-binary", "/api/models/5/files/91/download", 7);
+        var draft = new PrintRequest(7, "Prototype");
+        var item = new PrintRequestItem(44, 12, 3, "Black", "STANDARD", 20,
+                null, null, null, 1, "Sample");
+
+        assertDoesNotThrow(() -> validator.validate(draft, current, List.of(item)));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> validator.validate(draft, new PrintRequestFileVersion(44, 2,
+                        "other.glb", 100L, "model/gltf-binary",
+                        "/api/models/5/files/92/download", 7), List.of(item))).getStatus());
+        when(materials.findByIdForUpdate(3))
+                .thenReturn(Optional.of(material("PLA", "FDM", "GRAM", false)));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> validator.validate(draft, current, List.of(item))).getStatus());
+        when(models.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(5, 7))
+                .thenReturn(Optional.empty());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> validator.validate(draft, current, List.of(item))).getStatus());
     }
 
     private static CreatePrintRequestRequest request(CreatePrintRequestItemRequest item) {

@@ -1,4 +1,4 @@
-package com.project.w_3d_world.features.model.storage;
+package com.project.w_3d_world.features.model.exception;
 
 /** Safe public messages; causes/suppressed exceptions are for internal diagnostics only. */
 public class ModelStorageException extends RuntimeException {

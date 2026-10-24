@@ -1,0 +1,4 @@
+| table_name                   | trigger_name                  | event_manipulation | action_timing | action_statement                                   |
+| ---------------------------- | ----------------------------- | ------------------ | ------------- | -------------------------------------------------- |
+| print_request_status_history | trg_no_print_history_mutation | DELETE             | BEFORE        | EXECUTE FUNCTION fn_3dworld_deny_history_changes() |
+| print_request_status_history | trg_no_print_history_mutation | UPDATE             | BEFORE        | EXECUTE FUNCTION fn_3dworld_deny_history_changes() |

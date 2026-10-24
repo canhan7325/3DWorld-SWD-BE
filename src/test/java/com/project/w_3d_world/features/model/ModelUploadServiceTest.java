@@ -9,6 +9,7 @@ import com.project.w_3d_world.features.model.repository.*;
 import com.project.w_3d_world.features.model.service.*;
 import com.project.w_3d_world.features.model.service.impl.*;
 import com.project.w_3d_world.features.model.storage.*;
+import com.project.w_3d_world.features.model.exception.ModelStorageException;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

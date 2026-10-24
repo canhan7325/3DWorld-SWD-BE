@@ -18,10 +18,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.dao.DataAccessException;
-import org.springframework.transaction.TransactionException;
-import jakarta.persistence.PersistenceException;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -84,12 +80,6 @@ public class AdminPrintMaterialController {
         return ApiResponse.success(service.updateStatus(PrintMaterialRequestValidation.requireAdminId(admin),
                 PrintMaterialRequestValidation.parseMaterialId(materialId),
                 UpdatePrintMaterialStatusRequest.from(body)));
-    }
-
-    @ExceptionHandler({DataAccessException.class, TransactionException.class, PersistenceException.class})
-    public ResponseEntity<ApiResponse<Void>> persistenceFailure(RuntimeException exception) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error(500, "Material change could not be completed."));
     }
 
 }

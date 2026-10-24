@@ -21,6 +21,7 @@ import org.springframework.data.repository.Repository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -177,19 +178,30 @@ class PrintRequestMappingTest {
                 .getAnnotation(RequestMapping.class).value()[0]);
         assertEquals(Set.of("/getAll", "/getId/{printRequestId}", "/getId/{printRequestId}/file",
                         "/getId/{printRequestId}/file/versions",
-                        "/getId/{printRequestId}/file/versions/{version}/download"),
+                        "/getId/{printRequestId}/file/versions/{version}/download",
+                        "/getId/{printRequestId}/specifications/versions",
+                        "/getId/{printRequestId}/status-history"),
                 Arrays.stream(PrintRequestController.class.getDeclaredMethods())
                         .filter(method -> method.isAnnotationPresent(GetMapping.class))
                         .map(method -> method.getAnnotation(GetMapping.class).value()[0])
                         .collect(Collectors.toSet()));
-        assertEquals(Set.of("/create", "/getId/{printRequestId}/file/correct"),
+        assertEquals(Set.of("/create", "/getId/{printRequestId}/file/correct",
+                        "/getId/{printRequestId}/preview/confirm",
+                        "/getId/{printRequestId}/submit",
+                        "/getId/{printRequestId}/cancel"),
                 Arrays.stream(PrintRequestController.class.getDeclaredMethods())
                         .filter(method -> method.isAnnotationPresent(PostMapping.class))
                         .map(method -> method.getAnnotation(PostMapping.class).value()[0])
                         .collect(Collectors.toSet()));
-        assertEquals(7, Arrays.stream(PrintRequestController.class.getDeclaredMethods())
+        assertEquals(Set.of("/getId/{printRequestId}/specifications"),
+                Arrays.stream(PrintRequestController.class.getDeclaredMethods())
+                        .filter(method -> method.isAnnotationPresent(PatchMapping.class))
+                        .map(method -> method.getAnnotation(PatchMapping.class).value()[0])
+                        .collect(Collectors.toSet()));
+        assertEquals(13, Arrays.stream(PrintRequestController.class.getDeclaredMethods())
                 .filter(method -> method.isAnnotationPresent(GetMapping.class)
-                        || method.isAnnotationPresent(PostMapping.class)).count());
+                        || method.isAnnotationPresent(PostMapping.class)
+                        || method.isAnnotationPresent(PatchMapping.class)).count());
     }
 
     private static void assertColumns(Class<?> entity, Map<String, String> expected) throws Exception {

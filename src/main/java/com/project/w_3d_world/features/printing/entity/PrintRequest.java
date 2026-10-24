@@ -88,9 +88,40 @@ public class PrintRequest {
         this.createdAt = Instant.now();
     }
 
+    public void confirmCopyrightDeclaration() {
+        this.copyrightConfirmed = true;
+    }
+
+    public void confirmPreview() {
+        this.previewConfirmed = true;
+        this.updatedAt = Instant.now();
+    }
+
+    public void submit() {
+        Instant now = Instant.now();
+        this.status = "SUBMITTED";
+        this.submittedAt = now;
+        this.updatedAt = now;
+    }
+
+    public void cancel(String reason) {
+        Instant now = Instant.now();
+        this.status = "CANCELLED";
+        this.cancellationReason = reason;
+        this.cancelledAt = now;
+        this.updatedAt = now;
+    }
+
     public void useFileVersion(int version) {
         if (version <= 0) throw new IllegalArgumentException("File version must be positive.");
         this.currentFileVersion = version;
+        this.previewConfirmed = false;
+        this.updatedAt = Instant.now();
+    }
+
+    public void useSpecVersion(int version) {
+        if (version <= 0) throw new IllegalArgumentException("Spec version must be positive.");
+        this.currentSpecVersion = version;
         this.previewConfirmed = false;
         this.updatedAt = Instant.now();
     }
