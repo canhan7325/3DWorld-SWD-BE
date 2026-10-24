@@ -3,16 +3,17 @@ package com.project.w_3d_world.common.config;
 import com.project.w_3d_world.common.response.ApiResponse;
 import com.project.w_3d_world.common.service.JwtService;
 import com.project.w_3d_world.features.auth.service.AuthSessionService;
-
+import java.util.Arrays;
+import java.util.List;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -21,11 +22,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-
 import tools.jackson.databind.ObjectMapper;
-
-import java.util.Arrays;
-import java.util.List;
 
 @Configuration
 @EnableMethodSecurity
@@ -106,6 +103,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(
                         requests ->
                                 requests.requestMatchers(
+                                                "/api/catalog", "/api/catalog/**",
                                                 "/api/auth/register",
                                                 "/api/auth/login",
                                                 "/api/auth/verify-email",

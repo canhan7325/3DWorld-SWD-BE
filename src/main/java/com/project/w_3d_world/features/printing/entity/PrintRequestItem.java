@@ -77,4 +77,12 @@ public class PrintRequestItem {
         this.notes = notes;
         this.productionStatus = "PENDING";
     }
+
+    public void replaceDraftModelVersion(Integer modelVersionId) {
+        if (modelVersionId == null || modelVersionId <= 0) {
+            throw new IllegalArgumentException("Model Version ID must be positive.");
+        }
+        this.modelVersionId = modelVersionId;
+        this.uploadedFileKey = null;
+    }
 }

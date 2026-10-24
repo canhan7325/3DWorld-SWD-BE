@@ -34,9 +34,8 @@ public class CatalogServiceImpl implements CatalogService {
         }
         var result = products.searchPublic(
                 normalize(keyword), normalize(category),
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id")));
         List<ProductSummary> items = result.getContent().stream()
-                .filter(this::publicStorefront)
                 .map(ProductSummary::from)
                 .toList();
         return new CatalogPage(items, page, size, result.getTotalElements(), result.getTotalPages());
@@ -59,7 +58,7 @@ public class CatalogServiceImpl implements CatalogService {
 
     private boolean publicStorefront(Product product) {
         return storefronts.findById(product.getStorefrontId())
-                .map(storefront -> storefront.getStatus().name().equals("ACTIVE"))
+                .map(storefront -> storefront.canPublish())
                 .orElse(false);
     }
 

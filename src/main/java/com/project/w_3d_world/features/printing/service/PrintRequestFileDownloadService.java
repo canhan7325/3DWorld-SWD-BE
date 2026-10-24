@@ -21,10 +21,15 @@ public class PrintRequestFileDownloadService {
     private final ModelVersionRepository versionRepository;
     private final ModelFileRepository fileRepository;
     private final ModelDownloadService modelDownloadService;
+    private final PrintRequestFileVersionService fileVersionService;
 
     public AuthorizedModelDownload open(Integer customerUserId, Integer printRequestId) {
-        requestRepository.findByPrintRequestIdAndCustomerUserId(printRequestId, customerUserId)
+        var request = requestRepository.findByPrintRequestIdAndCustomerUserId(printRequestId, customerUserId)
                 .orElseThrow(PrintRequestFileDownloadService::notFound);
+        if (request.getCurrentFileVersion() != null) {
+            return fileVersionService.download(customerUserId, printRequestId,
+                    request.getCurrentFileVersion());
+        }
         var items = itemRepository.findByPrintRequestIdOrderByPrintRequestItemIdAsc(printRequestId);
         if (items.isEmpty() || items.getFirst().getModelVersionId() == null) throw notFound();
         Integer versionId = items.getFirst().getModelVersionId();

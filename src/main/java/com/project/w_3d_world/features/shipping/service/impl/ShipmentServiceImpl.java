@@ -1,7 +1,11 @@
 package com.project.w_3d_world.features.shipping.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
+import com.project.w_3d_world.features.audit.entity.AuditLog;
+import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
+import com.project.w_3d_world.features.order.entity.OrderStatusHistory;
 import com.project.w_3d_world.features.order.entity.PhysicalOrder;
+import com.project.w_3d_world.features.order.repository.OrderStatusHistoryRepository;
 import com.project.w_3d_world.features.order.repository.PhysicalOrderRepository;
 import com.project.w_3d_world.features.shipping.dto.ShipmentRequests.CreateShipmentRequest;
 import com.project.w_3d_world.features.shipping.dto.ShipmentResponses.ShipmentResponse;
@@ -22,19 +26,19 @@ public class ShipmentServiceImpl implements ShipmentService {
     private final PhysicalOrderRepository orders;
     private final StorefrontRepository storefronts;
     private final ShippingProvider provider;
+    private final OrderStatusHistoryRepository history;
+    private final AuditLogRepository audit;
 
     @Override
     @Transactional
     public ShipmentResponse create(int sellerId, int orderId, CreateShipmentRequest request) {
-        PhysicalOrder order = sellerOrder(sellerId, orderId);
-        if (!("PAID".equals(order.getStatus()) || "PROCESSING".equals(order.getStatus()))) {
+        PhysicalOrder order = orders.lockById(orderId).orElseThrow();
+        sellerOrder(sellerId, orderId);
+        if (!"PROCESSING".equals(order.getStatus()) || !"CONSUMED".equals(order.getReservationStatus())) {
             throw ApiException.invalidRequest("Order is not ready for shipment.");
         }
         if (shipments.findByPhysicalOrderId(orderId).isPresent()) {
             throw ApiException.invalidRequest("A shipment already exists for this order.");
-        }
-        if ("PAID".equals(order.getStatus())) {
-            order.transition("PROCESSING");
         }
         Shipment shipment = new Shipment(
                 orderId,
@@ -42,7 +46,13 @@ public class ShipmentServiceImpl implements ShipmentService {
                 provider.createTrackingNumber(request.carrierName().trim(), orderId));
         shipment.markShipped();
         order.transition("SHIPPED");
-        return ShipmentResponse.from(shipments.save(shipment));
+        shipments.saveAndFlush(shipment);
+        history.save(new OrderStatusHistory(
+                orderId, "PROCESSING", "SHIPPED", sellerId, "Demo shipment " + shipment.getTrackingNumber()));
+        audit.save(new AuditLog(
+                sellerId, "SHIPMENT_CREATED", "SHIPMENT", shipment.getId(),
+                "Demo shipment created", shipment.getTrackingNumber()));
+        return ShipmentResponse.from(shipment);
     }
 
     @Override
@@ -70,10 +80,24 @@ public class ShipmentServiceImpl implements ShipmentService {
     public ShipmentResponse applyEvent(int actorId, int shipmentId, String event) {
         Shipment shipment = shipments.findById(shipmentId)
                 .orElseThrow(() -> ApiException.invalidRequest("Shipment does not exist."));
-        PhysicalOrder order = orders.findById(shipment.getPhysicalOrderId())
+        PhysicalOrder order = orders.lockById(shipment.getPhysicalOrderId())
                 .orElseThrow(() -> ApiException.invalidRequest("Order does not exist."));
         sellerOrder(actorId, order.getId());
-        switch (event.toUpperCase()) {
+        String normalized = event.toUpperCase(java.util.Locale.ROOT);
+        if (normalized.equals(shipment.getStatus())) {
+            return ShipmentResponse.from(shipment);
+        }
+        if (("DELIVERED".equals(normalized) || "FAILED".equals(normalized))
+                && !("SHIPPED".equals(shipment.getStatus()) || "FAILED".equals(shipment.getStatus()))) {
+            throw ApiException.invalidRequest("Shipment cannot receive this event in its current state.");
+        }
+        if ("RETURNED".equals(normalized)
+                && !("SHIPPED".equals(shipment.getStatus()) || "FAILED".equals(shipment.getStatus())
+                     || "DELIVERED".equals(shipment.getStatus()))) {
+            throw ApiException.invalidRequest("Shipment cannot be returned in its current state.");
+        }
+        String from = order.getStatus();
+        switch (normalized) {
             case "DELIVERED" -> {
                 shipment.markDelivered();
                 order.transition("DELIVERED");
@@ -85,6 +109,12 @@ public class ShipmentServiceImpl implements ShipmentService {
             }
             default -> throw ApiException.invalidRequest("Unsupported shipment event.");
         }
+        if (!from.equals(order.getStatus())) {
+            history.save(new OrderStatusHistory(
+                    order.getId(), from, order.getStatus(), actorId, "Shipment " + shipment.getTrackingNumber()));
+        }
+        audit.save(new AuditLog(
+                actorId, "SHIPMENT_EVENT", "SHIPMENT", shipmentId, normalized, shipment.getTrackingNumber()));
         return ShipmentResponse.from(shipment);
     }
 

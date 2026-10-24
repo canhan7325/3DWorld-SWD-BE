@@ -100,4 +100,8 @@ public class UserBankAccount {
         this.verificationStatus = approved ? "VERIFIED" : "REJECTED";
         this.verifiedAt = approved ? Instant.now() : null;
     }
+    public void invalidateVerification() {
+        verificationStatus = "PENDING";
+        verifiedAt = null;
+    }
 }
