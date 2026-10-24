@@ -38,6 +38,12 @@ public final class PrintRequestValidation {
         return id;
     }
 
+    public static int parseFileVersion(String value) {
+        int version = parseInteger(value, "version");
+        if (version <= 0) throw ApiException.invalidRequest("version must be a positive integer.");
+        return version;
+    }
+
     public static void validateCustomerId(Integer customerUserId) {
         if (customerUserId == null || customerUserId <= 0) {
             throw ApiException.invalidRequest("Authenticated customer ID is invalid.");

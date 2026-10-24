@@ -87,4 +87,11 @@ public class PrintRequest {
         this.status = "DRAFT";
         this.createdAt = Instant.now();
     }
+
+    public void useFileVersion(int version) {
+        if (version <= 0) throw new IllegalArgumentException("File version must be positive.");
+        this.currentFileVersion = version;
+        this.previewConfirmed = false;
+        this.updatedAt = Instant.now();
+    }
 }

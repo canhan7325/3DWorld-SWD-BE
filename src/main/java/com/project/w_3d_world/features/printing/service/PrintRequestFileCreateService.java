@@ -19,6 +19,7 @@ import java.util.List;
 public class PrintRequestFileCreateService {
     private final ModelUploadService modelUploadService;
     private final PrintRequestService printRequestService;
+    private final PrintRequestFileVersionService fileVersionService;
 
     @Transactional
     public PrintRequestResponse create(Integer customerUserId, Integer materialId,
@@ -34,7 +35,10 @@ public class PrintRequestFileCreateService {
         var upload = modelUploadService.uploadModel(customerUserId, new CreateModelRequest(name, null), file);
         var item = new CreatePrintRequestItemRequest(upload.modelVersionId(), materialId,
                 null, null, null, null, null, null, 1, null);
-        return printRequestService.createDraft(customerUserId,
+        var created = printRequestService.createDraft(customerUserId,
                 new CreatePrintRequestRequest(null, true, List.of(item)));
+        fileVersionService.recordInitial(customerUserId, created.printRequestId(),
+                upload, file.getOriginalFilename());
+        return created;
     }
 }
