@@ -64,6 +64,8 @@ class V2PersistenceIntegrationTest {
         String key = UUID.randomUUID().toString();
         buyer = user("buyer-" + key);
         int seller = user("seller-" + key);
+        jdbc.update("UPDATE users SET email_verified=true,phone_verified=true WHERE user_id=?", seller);
+        jdbc.update("INSERT INTO user_roles(user_id,role_id,approval_status) SELECT ?,role_id,'ACTIVE' FROM roles WHERE role_code='SELLER'", seller);
         address = jdbc.queryForObject("""
                 INSERT INTO user_addresses(user_id, recipient_name, address_line, city)
                 VALUES (?, 'Buyer', 'Original address', 'City') RETURNING address_id

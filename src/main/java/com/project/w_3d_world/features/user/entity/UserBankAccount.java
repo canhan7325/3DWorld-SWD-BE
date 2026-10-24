@@ -6,7 +6,11 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.HexFormat;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -57,6 +61,9 @@ public class UserBankAccount {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
+    @Column(name = "updated_at")
+    private Instant updatedAt;
+
     public UserBankAccount(
             Integer userId,
             String bankCode,
@@ -85,6 +92,7 @@ public class UserBankAccount {
         this.accountNumberMasked = masked;
         this.verificationStatus = "PENDING";
         this.verifiedAt = null;
+        this.updatedAt = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     }
 
     public void markDefault(boolean value) {
@@ -92,16 +100,29 @@ public class UserBankAccount {
     }
 
     public void deactivate() {
+        this.updatedAt = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         this.active = false;
         this.defaultAccount = false;
     }
 
     public void review(boolean approved) {
+        this.updatedAt = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         this.verificationStatus = approved ? "VERIFIED" : "REJECTED";
         this.verifiedAt = approved ? Instant.now() : null;
     }
     public void invalidateVerification() {
+        updatedAt = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         verificationStatus = "PENDING";
         verifiedAt = null;
+    }
+    public String reviewFingerprint() {
+        try {
+            String value = id + "|" + bankCode + "|" + bankName + "|" + accountHolder
+                    + "|" + accountNumberToken + "|" + updatedAt;
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 }

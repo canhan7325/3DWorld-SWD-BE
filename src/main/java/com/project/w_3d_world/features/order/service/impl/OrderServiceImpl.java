@@ -2,6 +2,7 @@ package com.project.w_3d_world.features.order.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.common.util.JsonValues;
+import com.project.w_3d_world.features.auth.enums.RoleCode;
 import com.project.w_3d_world.features.cart.entity.CartItem;
 import com.project.w_3d_world.features.cart.repository.CartItemRepository;
 import com.project.w_3d_world.features.cart.repository.CartRepository;
@@ -169,9 +170,17 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponse updateStatus(int sellerId, int orderId, String status) {
         PhysicalOrder order = orders.lockById(orderId)
                 .orElseThrow(() -> ApiException.invalidRequest("Order does not exist."));
-        storefronts.findByOwnerUserId(sellerId)
-                .filter(store -> store.getId().equals(order.getStorefrontId()))
-                .orElseThrow(() -> ApiException.invalidRequest("You do not own this storefront."));
+        boolean owner = storefronts.findByOwnerUserId(sellerId)
+                .filter(store -> store.getId().equals(order.getStorefrontId())).isPresent();
+        boolean operator = users.findWithRolesById(sellerId).filter(user -> user.isActive() && user.isEmailVerified())
+                .map(user -> user.getUserRoles().stream().anyMatch(grant -> grant.isActive()
+                        && (grant.getRole().getCode() == RoleCode.ADMIN
+                            || grant.getRole().getCode() == RoleCode.PRINT_STAFF)))
+                .orElse(false);
+        if (!owner && !operator) {
+            throw new com.project.w_3d_world.common.exception.ApiException(
+                    org.springframework.http.HttpStatus.FORBIDDEN, "You cannot process this order.");
+        }
         if (order.getStatus().equals(status)) {
             return response(order);
         }

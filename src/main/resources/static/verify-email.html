@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="referrer" content="no-referrer">
-    <title>Xác minh email · 3DWorld</title>
+    <title>Verify email · 3DWorld</title>
     <style>
         * { box-sizing: border-box; }
         body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; font: 16px/1.6 system-ui, sans-serif; background: #f3f6fb; color: #182230; }
@@ -20,9 +20,9 @@
 <body>
 <main>
     <span class="brand">3DWorld</span>
-    <h1>Xác minh email</h1>
-    <p>Bấm nút bên dưới để xác minh địa chỉ <strong id="email"></strong>.</p>
-    <button id="confirm" type="button">Xác minh email</button>
+    <h1>Verify email</h1>
+    <p>Click below to verify the email address <strong id="email"></strong>.</p>
+    <button id="confirm" type="button">Verify email</button>
     <p id="result" role="status" aria-live="polite"></p>
 </main>
 <script>
@@ -35,11 +35,11 @@
     document.getElementById('email').textContent = email || '';
     if (!email || !token) {
         button.disabled = true;
-        result.textContent = 'Liên kết không hợp lệ. Vui lòng mở link trong email.';
+        result.textContent = 'Invalid link. Please open the link from your email.';
     }
     button.addEventListener('click', async () => {
         button.disabled = true;
-        result.textContent = 'Đang xác minh…';
+        result.textContent = 'Verifying…';
         try {
             const response = await fetch('/api/auth/verify-email', {
                 method: 'POST',
@@ -48,10 +48,10 @@
             });
             const body = await response.json();
             result.textContent = body.message;
-            if (response.ok) button.textContent = 'Đã xác minh';
+            if (response.ok) button.textContent = 'Verified';
             else button.disabled = false;
         } catch {
-            result.textContent = 'Không thể kết nối tới máy chủ. Vui lòng thử lại.';
+            result.textContent = 'Unable to connect to the server. Please try again.';
             button.disabled = false;
         }
     });

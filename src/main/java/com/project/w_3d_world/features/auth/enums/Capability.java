@@ -1,5 +1,6 @@
 package com.project.w_3d_world.features.auth.enums;
 
+
 public enum Capability {
     PROFILE_READ,
     PROFILE_UPDATE,
@@ -11,5 +12,10 @@ public enum Capability {
     USER_ROLE_MANAGE,
     USER_STATUS_MANAGE,
     REPORT_REVIEW,
-    PLATFORM_CONFIG_MANAGE
+    PLATFORM_CONFIG_MANAGE,
+    SELLER_VERIFICATION_SUBMIT,
+    SELLER_VERIFICATION_REVIEW,
+    BANK_VERIFICATION_REVIEW,
+    PHONE_VERIFICATION_REVIEW,
+    INTERNAL_ACCOUNT_CREATE
 }
