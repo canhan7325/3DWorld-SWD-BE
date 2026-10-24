@@ -27,6 +27,9 @@ import java.time.OffsetDateTime;
 public class EmailAuthController {
     private final EmailTokenService emailTokenService;
 
+    @org.springframework.beans.factory.annotation.Value("${app.auth.email-resend-cooldown-seconds:60}")
+    private long resendCooldown;
+
     @PostMapping("/verify-email")
     @Operation(summary = "Verify email using the one-time token from the email link")
     public ApiResponse<Void> verify(@Valid @RequestBody VerifyEmailRequest request) {
@@ -35,9 +38,14 @@ public class EmailAuthController {
     }
 
     @PostMapping("/resend-verification")
-    @Operation(summary = "Request a new verification link; the old token becomes invalid")
-    public ApiResponse<Void> resend(@Valid @RequestBody EmailRequest request) {
+    @Operation(summary = "Request another verification email",
+            description = "Can be requested repeatedly after the configured cooldown (default 60 seconds). "
+                    + "A new request invalidates earlier links. Failed or expired deliveries can be requested again. "
+                    + "The response never exposes whether the email is registered or already verified.")
+    public ApiResponse<Void> resend(@Valid @RequestBody EmailRequest request,
+                                    jakarta.servlet.http.HttpServletResponse response) {
         emailTokenService.requestLink(request.email(), TokenPurpose.VERIFY_EMAIL);
+        response.setHeader("Retry-After", Long.toString(Math.max(0, resendCooldown)));
         return genericResponse();
     }
 
@@ -59,8 +67,8 @@ public class EmailAuthController {
     private ApiResponse<Void> genericResponse() {
         return new ApiResponse<>(
                 200,
-                "If the account is eligible, instructions will be sent by email. If you just requested a link,"
-                    + " please wait before requesting another link.",
+                "If the account is eligible, instructions will be sent by email. You may request another link after "
+                    + resendCooldown + " seconds. Use the newest email; earlier links may no longer work.",
                 null,
                 OffsetDateTime.now());
     }

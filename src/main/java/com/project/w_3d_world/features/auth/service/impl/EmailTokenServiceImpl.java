@@ -7,12 +7,12 @@ import com.project.w_3d_world.features.auth.enums.TokenPurpose;
 import com.project.w_3d_world.features.auth.service.EmailTokenService;
 import com.project.w_3d_world.features.user.entity.User;
 import com.project.w_3d_world.features.user.repository.UserRepository;
-import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +24,7 @@ public class EmailTokenServiceImpl implements EmailTokenService {
     private final EmailStateCodec codec;
     private final EmailTokenEncryption encryption;
     private final PasswordEncoder passwordEncoder;
+    private final ApplicationEventPublisher events;
 
     @Value("${app.auth.token-expiration}")
     private long expiration;
@@ -43,7 +44,11 @@ public class EmailTokenServiceImpl implements EmailTokenService {
         if (user == null || !user.isActive()
                 || (purpose == TokenPurpose.VERIFY_EMAIL && user.isEmailVerified())) return;
         var previous = codec.read(user.getEmailDeliveryState()).get(purpose.name());
-        if (previous != null && previous.createdAt() + cooldown * 1000 > System.currentTimeMillis()) {
+        long now = System.currentTimeMillis();
+        if (previous != null && previous.createdAt() + cooldown * 1000 > now
+                && previous.expiresAt() > now
+                && !("FAILED".equals(previous.status()) || "EXHAUSTED".equals(previous.status())
+                    || "CANCELLED".equals(previous.status()))) {
             return;
         }
         queue(user, purpose);
@@ -60,6 +65,7 @@ public class EmailTokenServiceImpl implements EmailTokenService {
                 encryption.encrypt(token, reference), now, now + expiration, "PENDING", 0, now, null, null));
         user.emailDeliveryState(codec.write(states));
         users.saveAndFlush(user);
+        events.publishEvent(new EmailDeliveryRequested(user.getId()));
     }
 
     @Override

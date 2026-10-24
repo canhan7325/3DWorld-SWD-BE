@@ -55,7 +55,7 @@ class RestrictedCorsTest {
         assertNotNull(cors);
         assertEquals("https://approved.example.invalid", cors.checkOrigin("https://approved.example.invalid"));
         assertNull(cors.checkOrigin("https://unapproved.example.invalid"));
-        assertEquals(java.util.List.of("Content-Disposition"), cors.getExposedHeaders());
+        assertEquals(java.util.List.of("Content-Disposition", "Retry-After"), cors.getExposedHeaders());
         assertFalse(cors.getAllowCredentials());
         assertThrows(IllegalStateException.class, () -> config.corsConfigurationSource(
                 new MockEnvironment().withProperty("APP_CORS_ALLOWED_ORIGINS", "*")));

@@ -1,6 +1,7 @@
 package com.project.w_3d_world.features.auth.delivery;
 
 import com.project.w_3d_world.common.service.EmailService;
+import com.project.w_3d_world.common.service.JwtService;
 import com.project.w_3d_world.features.auth.enums.TokenPurpose;
 import com.project.w_3d_world.features.user.repository.UserRepository;
 import java.time.Instant;
@@ -22,11 +23,14 @@ public class EmailDeliveryService {
     private final EmailTokenEncryption encryption;
     private final EmailService email;
     private final JdbcTemplate jdbc;
+    private final JwtService jwt;
 
     @Value("${app.auth.base-url}")
     private String baseUrl;
     @Value("${app.auth.email-max-attempts:5}")
     private int maxAttempts;
+    @Value("${app.auth.token-expiration}")
+    private long expiration;
 
     public List<Integer> pendingUsers() {
         return jdbc.queryForList("""
@@ -52,21 +56,27 @@ public class EmailDeliveryService {
                     || value.nextAttemptAt() > now) continue;
             TokenPurpose purpose = TokenPurpose.valueOf(entry.getKey());
             if (!user.isActive() || !user.getEmail().equals(value.recipient())
-                    || user.emailVersion(purpose) != value.version() || value.expiresAt() <= now) {
+                    || user.emailVersion(purpose) != value.version()
+                    || (purpose == TokenPurpose.VERIFY_EMAIL && user.isEmailVerified())) {
                 entry.setValue(value.result("CANCELLED", null, value.attempts(), now, null, null));
                 continue;
             }
             int attempt = value.attempts() + 1;
             try {
-                String token = encryption.decrypt(value.encryptedToken(), value.reference());
+                // Queue/retry time must not consume the recipient's verification window.
+                var freshToken = jwt.generateEmailToken(user.getId(), value.recipient(), purpose, expiration, value.version());
+                String token = freshToken.getTokenValue();
+                value = value.prepared(encryption.encrypt(token, value.reference()), freshToken.getExpiresAt().toEpochMilli());
                 boolean verify = purpose == TokenPurpose.VERIFY_EMAIL;
                 String link = UriComponentsBuilder.fromUriString(baseUrl)
                         .path(verify ? "/verify-email" : "/reset-password")
                         .queryParam("email", "{email}").queryParam("token", "{token}")
                         .encode().buildAndExpand(value.recipient(), token).toUriString();
                 email.sendLink(value.recipient(), verify ? "Verify your email" : "Reset your password",
-                        "This link expires and can only be used once.", link);
-                entry.setValue(value.result("SENT", null, attempt, now, now, null));
+                        "This link is valid for " + Math.max(1, expiration / 60000)
+                                + " minutes and can only be used once. Use the newest email if you request another link.", link);
+                long sentAt = System.currentTimeMillis();
+                entry.setValue(value.result("SENT", null, attempt, sentAt, sentAt, null));
             } catch (RuntimeException exception) {
                 boolean exhausted = attempt >= maxAttempts;
                 entry.setValue(value.result(exhausted ? "EXHAUSTED" : "FAILED",
