@@ -27,13 +27,15 @@ import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.ObjectMapper;
 
 @EnabledIfSystemProperty(named = "email.pg.integration", matches = "true")
-@SpringBootTest(classes = W3dWorldApplication.class, properties = {
+@SpringBootTest(classes = W3dWorldApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.datasource.url=jdbc:postgresql://127.0.0.1:55439/marketplacecheck",
         "spring.datasource.username=canhan7325", "spring.datasource.password=",
         "spring.sql.init.mode=never", "app.auth.email-worker-enabled=true",
         "app.auth.email-resend-cooldown-seconds=0"
 })
 class EmailDeliveryPostgresTest {
+    @Autowired org.springframework.core.env.Environment environment;
     @Autowired WebApplicationContext context;
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
@@ -71,6 +73,23 @@ class EmailDeliveryPostgresTest {
                 .content(mapper.writeValueAsString(Map.of("email", recipient, "token", token(second))))).andReturn();
         assertEquals(200, verified.getResponse().getStatus(), verified.getResponse().getContentAsString());
         assertEquals(Boolean.TRUE, jdbc.queryForObject("SELECT email_verified FROM users WHERE email=?", Boolean.class, recipient));
+    }
+
+    @Test
+    void emailLinksServeHtmlOverRealHttpWithoutAuthentication() throws Exception {
+        String port = environment.getRequiredProperty("local.server.port");
+        try (var client = java.net.http.HttpClient.newHttpClient()) {
+            for (String page : List.of("verify-email", "reset-password")) {
+                var request = java.net.http.HttpRequest.newBuilder(URI.create(
+                        "http://127.0.0.1:" + port + "/" + page + "?email=buyer%40example.com&token=example"))
+                        .GET().build();
+                var response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, response.statusCode(), response.body());
+                assertTrue(response.headers().firstValue("Content-Type").orElse("").contains("text/html"));
+                assertTrue(response.body().contains("<!doctype html>"));
+                assertTrue(response.body().contains("/api/auth/" + page));
+            }
+        }
     }
 
     private String token(String link) {
