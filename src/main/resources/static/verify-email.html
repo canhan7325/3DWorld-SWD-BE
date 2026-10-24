@@ -65,6 +65,10 @@
             if (response.ok) {
                 button.textContent = 'Verified';
                 resendForm.hidden = true;
+                const loginUrl = new URL('http://localhost:5173/login');
+                loginUrl.searchParams.set('verified', 'true');
+                loginUrl.searchParams.set('email', email);
+                window.location.assign(loginUrl.toString());
             } else {
                 button.disabled = false;
             }
