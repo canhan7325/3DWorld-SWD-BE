@@ -43,7 +43,7 @@ import tools.jackson.databind.*;
 @SpringBootTest(classes = W3dWorldApplication.class, properties = {
         "spring.datasource.url=jdbc:postgresql://127.0.0.1:55439/marketplacecheck",
         "spring.datasource.username=canhan7325", "spring.datasource.password=",
-        "app.auth.email-worker-enabled=false", "spring.sql.init.mode=never"
+        "app.auth.email-worker-enabled=false", "spring.sql.init.mode=never", "app.ghtk.enabled=false"
 })
 class MarketplaceSmokeTest {
     @Autowired WebApplicationContext context;

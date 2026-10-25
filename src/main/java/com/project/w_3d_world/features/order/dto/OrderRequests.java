@@ -14,7 +14,16 @@ public final class OrderRequests {
             @NotEmpty List<Integer> cartItemIds,
             String shippingAddressSnapshot,
             @NotNull Integer shippingAddressId,
-            @NotBlank @Size(max = 255) String idempotencyKey) {}
+            @NotBlank @Size(max = 255) String idempotencyKey,
+            @io.swagger.v3.oas.annotations.media.Schema(
+                    description = "Required when GHTK is enabled. Obtain quoteToken from POST /api/shipping/quote. "
+                            + "Use the same cartItemIds and shippingAddressId before quote expiry.")
+            @Size(max = 500000) String shippingQuoteToken) {
+        public CheckoutRequest(List<Integer> cartItemIds, String shippingAddressSnapshot,
+                               Integer shippingAddressId, String idempotencyKey) {
+            this(cartItemIds, shippingAddressSnapshot, shippingAddressId, idempotencyKey, null);
+        }
+    }
 
     public record CancelRequest(@NotBlank @Size(max = 1000) String reason) {}
 
