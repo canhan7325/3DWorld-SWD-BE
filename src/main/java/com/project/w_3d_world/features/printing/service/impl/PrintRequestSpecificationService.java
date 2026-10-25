@@ -16,6 +16,8 @@ import com.project.w_3d_world.features.printing.repository.PrintRequestSpecVersi
 import com.project.w_3d_world.features.printing.validation.PrintMaterialCompatibilityPolicy;
 import com.project.w_3d_world.features.printing.validation.PrintRequestCreateValidation;
 import com.project.w_3d_world.features.printing.validation.PrintRequestValidation;
+import com.project.w_3d_world.features.printing.validation.PrintRequestReviewPolicy;
+import com.project.w_3d_world.features.printing.validation.PrintRequestWorkflowPolicy;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -35,6 +37,7 @@ public class PrintRequestSpecificationService {
     private final PrintRequestSpecVersionRepository versions;
     private final PrintMaterialRepository materials;
     private final ObjectMapper objectMapper;
+    private final PrintRequestReviewPolicy reviewPolicy;
 
     @Transactional
     public void recordInitial(Integer customerId, Integer requestId) {
@@ -64,9 +67,12 @@ public class PrintRequestSpecificationService {
         }
         var request = requests.findOwnedByIdForUpdate(requestId, customerId)
                 .orElseThrow(PrintingErrors::requestNotFound);
-        if (!"DRAFT".equals(request.getStatus()) || request.getCancelledAt() != null
-                || request.getLockedAt() != null || request.getSubmittedAt() != null
-                || request.getCurrentQuoteId() != null) throw PrintingErrors.specificationChangeConflict();
+        boolean draft = PrintRequestWorkflowPolicy.isDraft(request);
+        if (!PrintRequestWorkflowPolicy.mayEdit(request)) {
+            throw PrintingErrors.specificationChangeConflict();
+        }
+        if (!draft && reviewPolicy.requirePendingCorrection(request).specVersion()
+                != request.getCurrentSpecVersion()) throw PrintingErrors.specificationChangeConflict();
         Integer expected = input.expectedCurrentSpecVersion();
         if (!expected.equals(request.getCurrentSpecVersion())
                 || versions.findByPrintRequestIdAndVersion(requestId, expected).isEmpty()) {

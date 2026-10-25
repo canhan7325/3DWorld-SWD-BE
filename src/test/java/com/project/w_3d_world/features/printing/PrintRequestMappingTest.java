@@ -1,12 +1,16 @@
 package com.project.w_3d_world.features.printing;
 
 import com.project.w_3d_world.features.printing.controller.PrintRequestController;
+import com.project.w_3d_world.features.printing.entity.PrintQuote;
+import com.project.w_3d_world.features.printing.entity.PrintQuoteItem;
 import com.project.w_3d_world.features.printing.entity.PrintRequest;
 import com.project.w_3d_world.features.printing.entity.PrintRequestItem;
 import com.project.w_3d_world.features.printing.entity.PrintRequestFileVersion;
 import com.project.w_3d_world.features.printing.entity.PrintRequestSpecVersion;
 import com.project.w_3d_world.features.printing.entity.PrintRequestStatusHistory;
 import com.project.w_3d_world.features.printing.entity.PrintRequestTechnicalReview;
+import com.project.w_3d_world.features.printing.repository.PrintQuoteItemRepository;
+import com.project.w_3d_world.features.printing.repository.PrintQuoteRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestItemRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestRepository;
 import jakarta.persistence.Column;
@@ -163,14 +167,58 @@ class PrintRequestMappingTest {
         assertIdentity(PrintRequestTechnicalReview.class, "technicalReviewId");
         assertEquals(SqlTypes.JSON, PrintRequestTechnicalReview.class
                 .getDeclaredField("reviewData").getAnnotation(JdbcTypeCode.class).value());
+
+        assertEquals("print_quotes", PrintQuote.class.getAnnotation(Table.class).name());
+        assertColumns(PrintQuote.class, Map.ofEntries(
+                Map.entry("printQuoteId", "print_quote_id"),
+                Map.entry("printRequestId", "print_request_id"),
+                Map.entry("quotedByUserId", "quoted_by_user_id"),
+                Map.entry("versionNumber", "version_number"),
+                Map.entry("fileVersionSnapshot", "file_version_snapshot"),
+                Map.entry("specificationVersionSnapshot", "specification_version_snapshot"),
+                Map.entry("totalAmount", "total_amount"),
+                Map.entry("depositAmount", "deposit_amount"),
+                Map.entry("remainingAmount", "remaining_amount"),
+                Map.entry("etaAt", "eta_at"),
+                Map.entry("expiresAt", "expires_at"),
+                Map.entry("quoteStatus", "quote_status"),
+                Map.entry("issuedAt", "issued_at"),
+                Map.entry("acceptedAt", "accepted_at")));
+        assertIdentity(PrintQuote.class, "printQuoteId");
+        for (String amountField : Set.of("totalAmount", "depositAmount", "remainingAmount")) {
+            var col = PrintQuote.class.getDeclaredField(amountField).getAnnotation(Column.class);
+            assertEquals(18, col.precision());
+            assertEquals(2, col.scale());
+        }
+
+        assertEquals("print_quote_items", PrintQuoteItem.class.getAnnotation(Table.class).name());
+        assertColumns(PrintQuoteItem.class, Map.ofEntries(
+                Map.entry("printQuoteItemId", "print_quote_item_id"),
+                Map.entry("printQuoteId", "print_quote_id"),
+                Map.entry("printRequestItemId", "print_request_item_id"),
+                Map.entry("fileVersionSnapshot", "file_version_snapshot"),
+                Map.entry("specificationVersionSnapshot", "specification_version_snapshot"),
+                Map.entry("fileReferenceSnapshot", "file_reference_snapshot"),
+                Map.entry("specificationSnapshot", "specification_snapshot"),
+                Map.entry("quantitySnapshot", "quantity_snapshot"),
+                Map.entry("materialCostSnapshot", "material_cost_snapshot"),
+                Map.entry("laborCostSnapshot", "labor_cost_snapshot"),
+                Map.entry("optionFeeSnapshot", "option_fee_snapshot"),
+                Map.entry("lineTotal", "line_total")));
+        assertIdentity(PrintQuoteItem.class, "printQuoteItemId");
+        assertEquals(SqlTypes.JSON, PrintQuoteItem.class
+                .getDeclaredField("specificationSnapshot").getAnnotation(JdbcTypeCode.class).value());
     }
 
     @Test
     void repositoriesExposeOwnedReadsAndDraftWritesWithThreeRoutes() {
         assertTrue(Repository.class.isAssignableFrom(PrintRequestRepository.class));
         assertTrue(Repository.class.isAssignableFrom(PrintRequestItemRepository.class));
+        assertTrue(Repository.class.isAssignableFrom(PrintQuoteRepository.class));
+        assertTrue(Repository.class.isAssignableFrom(PrintQuoteItemRepository.class));
         assertEquals(Set.of("findByCustomerUserId", "findByPrintRequestIdAndCustomerUserId",
-                        "findOwnedByIdForUpdate", "saveAndFlush"),
+                        "findOwnedByIdForUpdate", "findById", "findByIdForUpdate",
+                        "findUnacceptedQuoteExpirationCandidates", "saveAndFlush"),
                 methodNames(PrintRequestRepository.class));
         assertEquals(Set.of("findByPrintRequestIdOrderByPrintRequestItemIdAsc", "saveAndFlush"),
                 methodNames(PrintRequestItemRepository.class));
@@ -180,7 +228,8 @@ class PrintRequestMappingTest {
                         "/getId/{printRequestId}/file/versions",
                         "/getId/{printRequestId}/file/versions/{version}/download",
                         "/getId/{printRequestId}/specifications/versions",
-                        "/getId/{printRequestId}/status-history"),
+                        "/getId/{printRequestId}/status-history",
+                        "/getId/{printRequestId}/quotes"),
                 Arrays.stream(PrintRequestController.class.getDeclaredMethods())
                         .filter(method -> method.isAnnotationPresent(GetMapping.class))
                         .map(method -> method.getAnnotation(GetMapping.class).value()[0])
@@ -188,7 +237,9 @@ class PrintRequestMappingTest {
         assertEquals(Set.of("/create", "/getId/{printRequestId}/file/correct",
                         "/getId/{printRequestId}/preview/confirm",
                         "/getId/{printRequestId}/submit",
-                        "/getId/{printRequestId}/cancel"),
+                        "/getId/{printRequestId}/cancel",
+                        "/getId/{printRequestId}/quotes/{quoteId}/accept",
+                        "/getId/{printRequestId}/quotes/{quoteId}/request-revision"),
                 Arrays.stream(PrintRequestController.class.getDeclaredMethods())
                         .filter(method -> method.isAnnotationPresent(PostMapping.class))
                         .map(method -> method.getAnnotation(PostMapping.class).value()[0])
@@ -198,7 +249,7 @@ class PrintRequestMappingTest {
                         .filter(method -> method.isAnnotationPresent(PatchMapping.class))
                         .map(method -> method.getAnnotation(PatchMapping.class).value()[0])
                         .collect(Collectors.toSet()));
-        assertEquals(13, Arrays.stream(PrintRequestController.class.getDeclaredMethods())
+        assertEquals(16, Arrays.stream(PrintRequestController.class.getDeclaredMethods())
                 .filter(method -> method.isAnnotationPresent(GetMapping.class)
                         || method.isAnnotationPresent(PostMapping.class)
                         || method.isAnnotationPresent(PatchMapping.class)).count());

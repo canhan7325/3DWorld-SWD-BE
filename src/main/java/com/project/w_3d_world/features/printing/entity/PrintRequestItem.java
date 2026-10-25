@@ -99,4 +99,8 @@ public class PrintRequestItem {
         this.quantity = quantity;
         this.notes = notes;
     }
+
+    public void queueForProduction() {
+        this.productionStatus = "QUEUED";
+    }
 }

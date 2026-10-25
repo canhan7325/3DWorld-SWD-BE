@@ -3,11 +3,13 @@ package com.project.w_3d_world.features.printing.controller;
 import com.project.w_3d_world.common.config.AuthenticatedUser;
 import com.project.w_3d_world.common.response.ApiResponse;
 import com.project.w_3d_world.features.printing.dto.response.PagedPrintRequestResponse;
+import com.project.w_3d_world.features.printing.dto.response.PrintQuoteResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestFileVersionResponse;
 import com.project.w_3d_world.features.printing.dto.request.UpdatePrintRequestSpecificationRequest;
 import com.project.w_3d_world.features.printing.dto.request.ConfirmPrintRequestPreviewRequest;
 import com.project.w_3d_world.features.printing.dto.request.CancelPrintRequestRequest;
+import com.project.w_3d_world.features.printing.dto.request.RequestPrintQuoteRevisionRequest;
 import com.project.w_3d_world.features.printing.dto.request.SubmitPrintRequestRequest;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestSpecVersionResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestStateResponse;
@@ -16,8 +18,10 @@ import com.project.w_3d_world.features.printing.service.PrintRequestService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileCreateService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileDownloadService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileVersionService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestQuoteService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestSpecificationService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestStateService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestWorkflowService;
 import com.project.w_3d_world.features.printing.validation.PrintRequestValidation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -56,6 +60,8 @@ public class PrintRequestController {
     private final PrintRequestFileVersionService fileVersionService;
     private final PrintRequestSpecificationService specificationService;
     private final PrintRequestStateService stateService;
+    private final PrintRequestQuoteService quoteService;
+    private final PrintRequestWorkflowService workflowService;
 
     @PostMapping(value = "/create", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<PrintRequestResponse>> create(
@@ -85,8 +91,9 @@ public class PrintRequestController {
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId) {
         int customerId = PrintRequestValidation.requireCustomerId(customer);
-        return ApiResponse.success(service.getMyRequestById(customerId,
-                PrintRequestValidation.parsePrintRequestId(printRequestId)));
+        int requestId = PrintRequestValidation.parsePrintRequestId(printRequestId);
+        return ApiResponse.success(service.getMyRequestById(customerId, requestId)
+                .withWorkflow(workflowService.forCustomer(customerId, requestId)));
     }
 
     @GetMapping("/getId/{printRequestId}/file")
@@ -202,4 +209,38 @@ public class PrintRequestController {
                 PrintRequestValidation.parsePrintRequestId(printRequestId)));
     }
 
+    @GetMapping("/getId/{printRequestId}/quotes")
+    public ApiResponse<List<PrintQuoteResponse>> quotes(
+            @AuthenticationPrincipal AuthenticatedUser customer,
+            @PathVariable String printRequestId) {
+        int customerId = PrintRequestValidation.requireCustomerId(customer);
+        return ApiResponse.success(quoteService.listCustomerQuotes(customerId,
+                PrintRequestValidation.parsePrintRequestId(printRequestId)));
+    }
+
+    @PostMapping("/getId/{printRequestId}/quotes/{quoteId}/accept")
+    public ApiResponse<PrintQuoteResponse> acceptQuote(
+            @AuthenticationPrincipal AuthenticatedUser customer,
+            @PathVariable String printRequestId,
+            @PathVariable String quoteId) {
+        int customerId = PrintRequestValidation.requireCustomerId(customer);
+        return ApiResponse.success(quoteService.acceptQuote(
+                customerId,
+                PrintRequestValidation.parsePrintRequestId(printRequestId),
+                PrintRequestValidation.parseQuoteId(quoteId)));
+    }
+
+    @PostMapping("/getId/{printRequestId}/quotes/{quoteId}/request-revision")
+    public ApiResponse<PrintQuoteResponse> requestQuoteRevision(
+            @AuthenticationPrincipal AuthenticatedUser customer,
+            @PathVariable String printRequestId,
+            @PathVariable String quoteId,
+            @Valid @RequestBody RequestPrintQuoteRevisionRequest body) {
+        int customerId = PrintRequestValidation.requireCustomerId(customer);
+        return ApiResponse.success(quoteService.requestRevision(
+                customerId,
+                PrintRequestValidation.parsePrintRequestId(printRequestId),
+                PrintRequestValidation.parseQuoteId(quoteId),
+                body));
+    }
 }

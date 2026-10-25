@@ -44,6 +44,14 @@ public final class PrintRequestValidation {
         return version;
     }
 
+    public static int parseQuoteId(String value) {
+        int id = parseInteger(value, "quoteId");
+        if (id <= 0) {
+            throw ApiException.invalidRequest("quoteId must be a positive integer.");
+        }
+        return id;
+    }
+
     public static void validateCustomerId(Integer customerUserId) {
         if (customerUserId == null || customerUserId <= 0) {
             throw ApiException.invalidRequest("Authenticated customer ID is invalid.");

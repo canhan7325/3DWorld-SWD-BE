@@ -16,6 +16,8 @@ import com.project.w_3d_world.features.printing.repository.PrintRequestFileVersi
 import com.project.w_3d_world.features.printing.repository.PrintRequestItemRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestRepository;
 import com.project.w_3d_world.features.printing.validation.PrintRequestValidation;
+import com.project.w_3d_world.features.printing.validation.PrintRequestReviewPolicy;
+import com.project.w_3d_world.features.printing.validation.PrintRequestWorkflowPolicy;
 import java.util.List;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +37,7 @@ public class PrintRequestFileVersionService {
     private final ModelFileRepository modelFiles;
     private final ModelUploadService modelUpload;
     private final ModelDownloadService modelDownload;
+    private final PrintRequestReviewPolicy reviewPolicy;
 
     @Transactional
     public void recordInitial(Integer customerId, Integer requestId,
@@ -63,9 +66,10 @@ public class PrintRequestFileVersionService {
         if (file.isEmpty()) throw ApiException.invalidRequest("A non-empty file is required.");
 
         var request = ownedForUpdate(customerId, requestId);
-        if (!"DRAFT".equals(request.getStatus()) || request.getLockedAt() != null
-                || request.getSubmittedAt() != null || request.getCurrentQuoteId() != null
-                || request.getCancelledAt() != null) throw PrintingErrors.fileChangeConflict();
+        boolean draft = PrintRequestWorkflowPolicy.isDraft(request);
+        if (!PrintRequestWorkflowPolicy.mayEdit(request)) throw PrintingErrors.fileChangeConflict();
+        if (!draft && reviewPolicy.requirePendingCorrection(request).fileVersion()
+                != request.getCurrentFileVersion()) throw PrintingErrors.fileChangeConflict();
         if (!expectedVersion.equals(request.getCurrentFileVersion())) throw PrintingErrors.fileChangeConflict();
         var current = fileVersions.findByPrintRequestIdAndVersion(requestId, expectedVersion)
                 .orElseThrow(PrintingErrors::fileChangeConflict);

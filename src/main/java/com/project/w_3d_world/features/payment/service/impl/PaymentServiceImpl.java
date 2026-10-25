@@ -11,6 +11,7 @@ import com.project.w_3d_world.features.payment.repository.PaymentAttemptReposito
 import com.project.w_3d_world.features.payment.repository.PaymentTransactionRepository;
 import com.project.w_3d_world.features.payment.service.PaymentService;
 import com.project.w_3d_world.features.payment.service.PaymentSourceResolver;
+import com.project.w_3d_world.features.payment.service.PaymentSourceResolver.PodSource;
 import com.project.w_3d_world.features.payment.service.ZaloPayClient;
 import com.project.w_3d_world.features.payment.service.ZaloPayProperties;
 import com.project.w_3d_world.features.user.repository.UserRepository;
@@ -27,7 +28,6 @@ import java.util.HexFormat;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,7 +43,6 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentSourceResolver sourceResolver;
     private final UserRepository users;
     private final OrderPaymentService orderPayments;
-    private final JdbcTemplate jdbc;
 
     @Override
     @Transactional
@@ -54,22 +53,38 @@ public class PaymentServiceImpl implements PaymentService {
                 && (request.idempotencyKey() == null || request.idempotencyKey().isBlank())) {
             throw ApiException.invalidRequest("A unique idempotencyKey is required for a top-up.");
         }
-        BigDecimal amount = sourceResolver.resolve(
-                userId,
-                request.sourceType(),
-                request.sourceId(),
-                request.stage(),
-                request.amount());
+        boolean pod = "PRINT_REQUEST".equals(request.sourceType())
+                || "PRINT_QUOTE".equals(request.sourceType());
+        PodSource podSource = pod ? sourceResolver.resolvePod(userId, request.sourceType(),
+                request.sourceId(), request.stage()) : null;
+        BigDecimal amount = pod ? podSource.amount() : sourceResolver.resolve(
+                userId, request.sourceType(), request.sourceId(), request.stage(), request.amount());
+        String keySourceType = pod ? "PRINT_QUOTE" : request.sourceType();
+        int keySourceId = pod ? podSource.printQuoteId() : request.sourceId();
 
-        String operationKey = "ZALOPAY:" + userId + ":" + request.sourceType()
-                + ":" + request.sourceId() + ":" + request.stage()
+        String operationKey = "ZALOPAY:" + userId + ":" + keySourceType
+                + ":" + keySourceId + ":" + request.stage()
                 + ("WALLET".equals(request.sourceType()) ? ":" + request.idempotencyKey() : "");
         operationKey = HexFormat.of().formatHex(hashKey(operationKey));
         String stableOperationKey = operationKey;
+        if (pod && transactions.findByPrintRequestIdAndPayerUserId(
+                podSource.printRequestId(), userId).stream()
+                .anyMatch(existing -> "PAYMENT".equals(existing.getTransactionType())
+                        && !stableOperationKey.equals(existing.getOperationKey()))) {
+            throw ApiException.invalidRequest(
+                    "POD already has a payment obligation; reconcile it before another charge.");
+        }
         PaymentTransaction transaction = transactions.findByOperationKey(operationKey)
-                .orElseGet(() -> createTransaction(userId, request, stableOperationKey, amount));
+                .orElseGet(() -> createTransaction(userId, request, stableOperationKey, amount, podSource));
         if (transaction.getAmount().compareTo(amount) != 0) {
             throw ApiException.invalidRequest("Payment snapshot differs; create a new payment source.");
+        }
+        if (pod && (!"POD".equals(transaction.getPurpose())
+                || !"FULL".equals(transaction.getPaymentStage())
+                || !podSource.printRequestId().equals(transaction.getPrintRequestId())
+                || !podSource.printQuoteId().equals(transaction.getPrintQuoteId())
+                || !Integer.valueOf(userId).equals(transaction.getPayerUserId()))) {
+            throw ApiException.invalidRequest("POD payment source has changed; reconcile the existing payment.");
         }
         var previous = attempts.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(
                 transaction.getId(), "ZALOPAY");
@@ -119,6 +134,11 @@ public class PaymentServiceImpl implements PaymentService {
         }
         attempt.providerResult(stringValue(response.get("order_url")), stringValue(response.get("return_code")));
         if (!"1".equals(stringValue(response.getOrDefault("return_code", "0")))) {
+            if (pod) {
+                attempt.reconciliation("Provider create was not accepted; query before retrying.");
+                return new PaymentResponse(transaction.getId(), attempt.getId(), appTransId,
+                        amount, "UNKNOWN", null, null);
+            }
             attempt.fail();
             transaction.markFailed();
         }
@@ -163,7 +183,7 @@ public class PaymentServiceImpl implements PaymentService {
         attempt.providerTransaction(stringValue(callback.get("zp_trans_id")));
         attempt.success();
         transaction.markSuccess();
-        orderPayments.verified(transaction);
+        applyVerifiedFulfillment(transaction);
     }
 
     @Override
@@ -200,7 +220,7 @@ public class PaymentServiceImpl implements PaymentService {
                 attempt.recordEvent(JsonValues.write(result));
                 attempt.success();
                 transaction.markSuccess();
-                orderPayments.verified(transaction);
+                applyVerifiedFulfillment(transaction);
             } else if ("-1".equals(returnCode)) {
                 attempt.fail();
                 transaction.markFailed();
@@ -220,19 +240,25 @@ public class PaymentServiceImpl implements PaymentService {
             int userId,
             CreatePaymentRequest request,
             String operationKey,
-            BigDecimal amount) {
+            BigDecimal amount,
+            PodSource podSource) {
         PaymentTransaction transaction = new PaymentTransaction(
                 request.sourceType(), operationKey, userId, request.stage(), amount);
-        if ("PRINT_QUOTE".equals(request.sourceType())) {
-            Integer printId = jdbc.queryForObject(
-                    "SELECT print_request_id FROM print_quotes WHERE print_quote_id = ?",
-                    Integer.class, request.sourceId());
-            transaction.setSource("PRINT_REQUEST", printId);
-            transaction.setSource("PRINT_QUOTE", request.sourceId());
+        if (podSource != null) {
+            transaction.setSource("PRINT_REQUEST", podSource.printRequestId());
+            transaction.setSource("PRINT_QUOTE", podSource.printQuoteId());
         } else {
             transaction.setSource(request.sourceType(), request.sourceId());
         }
         return transactions.saveAndFlush(transaction);
+    }
+
+    private void applyVerifiedFulfillment(PaymentTransaction transaction) {
+        if ("POD".equals(transaction.getPurpose())) {
+            transaction.fulfillment("RECONCILIATION_REQUIRED");
+            return;
+        }
+        orderPayments.verified(transaction);
     }
 
     private void validateSource(String sourceType) {

@@ -16,6 +16,8 @@ import com.project.w_3d_world.features.printing.repository.PrintRequestSpecVersi
 import com.project.w_3d_world.features.printing.repository.PrintRequestStatusHistoryRepository;
 import com.project.w_3d_world.features.printing.validation.PrintRequestValidation;
 import com.project.w_3d_world.features.printing.validation.PrintRequestSubmissionValidation;
+import com.project.w_3d_world.features.printing.validation.PrintRequestReviewPolicy;
+import com.project.w_3d_world.features.printing.validation.PrintRequestWorkflowPolicy;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -31,6 +33,7 @@ public class PrintRequestStateService {
     private final PrintRequestStatusHistoryRepository histories;
     private final PrintRequestItemRepository items;
     private final PrintRequestSubmissionValidation submissionValidation;
+    private final PrintRequestReviewPolicy reviewPolicy;
 
     @Transactional
     public PrintRequestStateResponse confirmPreview(Integer customerId, Integer requestId,
@@ -44,11 +47,11 @@ public class PrintRequestStateService {
         }
         PrintRequest request = requests.findOwnedByIdForUpdate(requestId, customerId)
                 .orElseThrow(PrintingErrors::requestNotFound);
-        if (!"DRAFT".equals(request.getStatus()) || request.getLockedAt() != null
-                || request.getSubmittedAt() != null || request.getCancelledAt() != null
-                || request.getCurrentQuoteId() != null) {
+        boolean revision = PrintRequestWorkflowPolicy.isCorrection(request);
+        if (!PrintRequestWorkflowPolicy.mayEdit(request)) {
             throw new ApiException(HttpStatus.CONFLICT, "Print Request is not an editable Draft.");
         }
+        if (revision) requireChangedCorrection(request);
         if (!input.expectedFileVersion().equals(request.getCurrentFileVersion())
                 || !input.expectedSpecVersion().equals(request.getCurrentSpecVersion())) {
             throw new ApiException(HttpStatus.CONFLICT, "Print Request versions have changed.");
@@ -74,12 +77,14 @@ public class PrintRequestStateService {
         }
         PrintRequest request = requests.findOwnedByIdForUpdate(requestId, customerId)
                 .orElseThrow(PrintingErrors::requestNotFound);
-        if (!"DRAFT".equals(request.getStatus()) || request.getLockedAt() != null
-                || request.getSubmittedAt() != null || request.getCancelledAt() != null
-                || request.getCurrentQuoteId() != null || request.getHandledAt() != null
-                || request.getHandledByUserId() != null) {
+        String fromStatus = request.getStatus();
+        boolean draft = PrintRequestWorkflowPolicy.isDraft(request);
+        boolean revision = PrintRequestWorkflowPolicy.isCorrection(request);
+        if (!PrintRequestWorkflowPolicy.mayEdit(request)
+                || (draft && (request.getHandledAt() != null || request.getHandledByUserId() != null))) {
             throw new ApiException(HttpStatus.CONFLICT, "Print Request cannot be submitted in its current state.");
         }
+        PrintRequestReviewPolicy.Decision decision = revision ? requireChangedCorrection(request) : null;
         if (!input.expectedFileVersion().equals(request.getCurrentFileVersion())
                 || !input.expectedSpecVersion().equals(request.getCurrentSpecVersion())) {
             throw new ApiException(HttpStatus.CONFLICT, "Print Request versions have changed.");
@@ -101,8 +106,11 @@ public class PrintRequestStateService {
                 items.findByPrintRequestIdOrderByPrintRequestItemIdAsc(requestId));
         request.submit();
         requests.saveAndFlush(request);
+        String sourceEventId = (decision != null && decision.revisionNumber() != null)
+                ? "POD_POST_QUOTE_REVISION:" + requestId + ":" + decision.revisionNumber()
+                : null;
         histories.saveAndFlush(new PrintRequestStatusHistory(
-                requestId, "DRAFT", "SUBMITTED", customerId, null, null));
+                requestId, fromStatus, "SUBMITTED", customerId, null, sourceEventId));
         return state(request);
     }
 
@@ -119,10 +127,7 @@ public class PrintRequestStateService {
         PrintRequest request = requests.findOwnedByIdForUpdate(requestId, customerId)
                 .orElseThrow(PrintingErrors::requestNotFound);
         String fromStatus = request.getStatus();
-        if (!("DRAFT".equals(fromStatus) || "SUBMITTED".equals(fromStatus))
-                || request.getLockedAt() != null || request.getCurrentQuoteId() != null
-                || request.getHandledAt() != null || request.getHandledByUserId() != null
-                || request.getCancelledAt() != null) {
+        if (!PrintRequestWorkflowPolicy.mayCancel(request)) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "Print Request cannot be cancelled in its current state.");
         }
@@ -152,5 +157,15 @@ public class PrintRequestStateService {
                 request.isCopyrightConfirmed(), request.isPreviewConfirmed(),
                 request.getCurrentFileVersion(), request.getCurrentSpecVersion(),
                 request.getSubmittedAt(), request.getCancelledAt(), request.getUpdatedAt());
+    }
+
+    private PrintRequestReviewPolicy.Decision requireChangedCorrection(PrintRequest request) {
+        var decision = reviewPolicy.requirePendingCorrection(request);
+        if (Integer.valueOf(decision.fileVersion()).equals(request.getCurrentFileVersion())
+                && Integer.valueOf(decision.specVersion()).equals(request.getCurrentSpecVersion())) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "A corrected file or specification version is required.");
+        }
+        return decision;
     }
 }

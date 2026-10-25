@@ -10,4 +10,17 @@ public record PrintRequestResponse(
         Instant createdAt,
         Instant updatedAt,
         Instant lockedAt,
-        List<PrintRequestItemResponse> items) {}
+        List<PrintRequestItemResponse> items,
+        PrintRequestWorkflowResponse workflow) {
+    public PrintRequestResponse(Integer printRequestId, String status, String customerNotes,
+            Instant createdAt, Instant updatedAt, Instant lockedAt,
+            List<PrintRequestItemResponse> items) {
+        this(printRequestId, status, customerNotes, createdAt, updatedAt, lockedAt,
+                items, null);
+    }
+
+    public PrintRequestResponse withWorkflow(PrintRequestWorkflowResponse value) {
+        return new PrintRequestResponse(printRequestId, status, customerNotes, createdAt,
+                updatedAt, lockedAt, items, value);
+    }
+}

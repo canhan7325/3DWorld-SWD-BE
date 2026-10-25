@@ -15,6 +15,7 @@ import com.project.w_3d_world.features.printing.repository.PrintRequestRepositor
 import com.project.w_3d_world.features.printing.repository.PrintRequestSpecVersionRepository;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestSpecificationService;
 import com.project.w_3d_world.features.printing.validation.PrintRequestCreateValidation;
+import com.project.w_3d_world.features.printing.validation.PrintRequestReviewPolicy;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.json.JsonMapper;
@@ -95,7 +96,7 @@ class PrintRequestSpecificationValidationTest {
         var materials = mock(PrintMaterialRepository.class);
         var mapper = JsonMapper.builder().build();
         var service = new PrintRequestSpecificationService(requests, items, versions,
-                materials, mapper);
+                materials, mapper, mock(PrintRequestReviewPolicy.class));
         var draft = new PrintRequest(7, "Prototype");
         ReflectionTestUtils.setField(draft, "printRequestId", 44);
         draft.useFileVersion(1);
@@ -160,7 +161,7 @@ class PrintRequestSpecificationValidationTest {
         var versions = mock(PrintRequestSpecVersionRepository.class);
         var materials = mock(PrintMaterialRepository.class);
         var service = new PrintRequestSpecificationService(requests, items, versions,
-                materials, JsonMapper.builder().build());
+                materials, JsonMapper.builder().build(), mock(PrintRequestReviewPolicy.class));
         var input = new UpdatePrintRequestSpecificationRequest(1,
                 List.of(new UpdatePrintRequestSpecificationItemRequest(45, 3, "White",
                         "STANDARD", null, null, null, null, 1, null)));
@@ -183,13 +184,56 @@ class PrintRequestSpecificationValidationTest {
     }
 
     @Test
+    void staffAuthorizedSpecCorrectionPreservesFileAndRequiresFreshReview() {
+        var requests = mock(PrintRequestRepository.class);
+        var items = mock(PrintRequestItemRepository.class);
+        var versions = mock(PrintRequestSpecVersionRepository.class);
+        var materials = mock(PrintMaterialRepository.class);
+        var policy = mock(PrintRequestReviewPolicy.class);
+        var service = new PrintRequestSpecificationService(requests, items, versions,
+                materials, JsonMapper.builder().build(), policy);
+        var request = new PrintRequest(7, "Prototype");
+        ReflectionTestUtils.setField(request, "printRequestId", 44);
+        request.useFileVersion(1);
+        request.useSpecVersion(1);
+        request.submit();
+        var item = new PrintRequestItem(44, 12, 3, "Black", "STANDARD", 20,
+                null, null, null, 1, null);
+        ReflectionTestUtils.setField(item, "printRequestItemId", 45);
+        var input = new UpdatePrintRequestSpecificationRequest(1,
+                List.of(new UpdatePrintRequestSpecificationItemRequest(45, 3, "White",
+                        "STANDARD", 30, null, null, null, 1, "Corrected")));
+        when(requests.findOwnedByIdForUpdate(44, 7)).thenReturn(Optional.of(request));
+        assertEquals(409, assertThrows(ApiException.class,
+                () -> service.update(7, 44, input)).getStatus().value());
+        request.requireRevision();
+        when(policy.requirePendingCorrection(request)).thenReturn(
+                new PrintRequestReviewPolicy.Decision("CORRECTION_REQUESTED", 1, 1));
+        when(versions.findByPrintRequestIdAndVersion(44, 1)).thenReturn(Optional.of(
+                new PrintRequestSpecVersion(44, 1, "{\"items\":[]}", 7)));
+        when(items.findByPrintRequestIdOrderByPrintRequestItemIdAsc(44)).thenReturn(List.of(item));
+        when(materials.findByIdForUpdate(3)).thenReturn(Optional.of(
+                new PrintMaterial("PLA", "FDM", "GRAM", null, true)));
+        when(versions.saveAndFlush(any())).thenAnswer(call -> call.getArgument(0));
+
+        assertEquals(2, service.update(7, 44, input).version());
+        assertEquals(1, request.getCurrentFileVersion());
+        assertEquals(2, request.getCurrentSpecVersion());
+        assertFalse(request.isPreviewConfirmed());
+        assertEquals(409, assertThrows(ApiException.class,
+                () -> service.update(7, 44, new UpdatePrintRequestSpecificationRequest(2,
+                        input.items()))).getStatus().value());
+        verify(versions, times(1)).saveAndFlush(any());
+    }
+
+    @Test
     void incompatibleMaterialAndInvalidDimensionsDoNotAdvanceSpecPointer() {
         var requests = mock(PrintRequestRepository.class);
         var items = mock(PrintRequestItemRepository.class);
         var versions = mock(PrintRequestSpecVersionRepository.class);
         var materials = mock(PrintMaterialRepository.class);
         var service = new PrintRequestSpecificationService(requests, items, versions,
-                materials, JsonMapper.builder().build());
+                materials, JsonMapper.builder().build(), mock(PrintRequestReviewPolicy.class));
         var draft = new PrintRequest(7, null);
         draft.useSpecVersion(1);
         var item = new PrintRequestItem(44, 12, 3, null, null, null,

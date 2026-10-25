@@ -24,6 +24,7 @@ import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileCre
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileDownloadService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileVersionService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestSpecificationService;
+import com.project.w_3d_world.features.printing.validation.PrintRequestReviewPolicy;
 import com.project.w_3d_world.features.printing.service.PrintRequestService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -136,7 +137,7 @@ class PrintRequestFileServiceTest {
         var uploader = mock(ModelUploadService.class);
         var downloader = mock(ModelDownloadService.class);
         var service = new PrintRequestFileVersionService(requests, items, history,
-                modelFiles, uploader, downloader);
+                modelFiles, uploader, downloader, mock(PrintRequestReviewPolicy.class));
         var request = new PrintRequest(7, null);
         ReflectionTestUtils.setField(request, "printRequestId", 44);
         when(requests.findOwnedByIdForUpdate(44, 7)).thenReturn(Optional.of(request));
@@ -210,7 +211,7 @@ class PrintRequestFileServiceTest {
         var uploader = mock(ModelUploadService.class);
         var downloader = mock(ModelDownloadService.class);
         var service = new PrintRequestFileVersionService(requests, items, history,
-                modelFiles, uploader, downloader);
+                modelFiles, uploader, downloader, mock(PrintRequestReviewPolicy.class));
         var file = new MockMultipartFile("file", "shape.stl", "model/stl", new byte[]{1});
         assertEquals(404, assertThrows(ApiException.class,
                 () -> service.correct(8, 44, 1, file)).getStatus().value());
@@ -225,6 +226,55 @@ class PrintRequestFileServiceTest {
         assertEquals(409, assertThrows(ApiException.class,
                 () -> service.correct(7, 44, 1, file)).getStatus().value());
         verifyNoInteractions(uploader, items, modelFiles);
+    }
+
+    @Test
+    void staffAuthorizedCorrectionPreservesOldFileAndRejectsSecondUnreviewedUpload() {
+        var requests = mock(PrintRequestRepository.class);
+        var items = mock(PrintRequestItemRepository.class);
+        var files = mock(PrintRequestFileVersionRepository.class);
+        var modelFiles = mock(ModelFileRepository.class);
+        var uploader = mock(ModelUploadService.class);
+        var policy = mock(PrintRequestReviewPolicy.class);
+        var service = new PrintRequestFileVersionService(requests, items, files,
+                modelFiles, uploader, mock(ModelDownloadService.class), policy);
+        var request = new PrintRequest(7, null);
+        ReflectionTestUtils.setField(request, "printRequestId", 44);
+        request.useFileVersion(1);
+        request.useSpecVersion(1);
+        request.submit();
+        var upload = new MockMultipartFile("file", "fixed.stl", "model/stl", new byte[]{1, 2, 3});
+        when(requests.findOwnedByIdForUpdate(44, 7)).thenReturn(Optional.of(request));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> service.correct(7, 44, 1, upload)).getStatus());
+        verifyNoInteractions(uploader);
+
+        request.requireRevision();
+        when(policy.requirePendingCorrection(request)).thenReturn(
+                new PrintRequestReviewPolicy.Decision("CORRECTION_REQUESTED", 1, 1));
+        var oldFile = new PrintRequestFileVersion(44, 1, "old.stl", 3L,
+                "model/stl", "/api/models/5/files/21/download", 7);
+        when(files.findByPrintRequestIdAndVersion(44, 1)).thenReturn(Optional.of(oldFile));
+        var item = new PrintRequestItem(44, 12, 3, null, null, null,
+                null, null, null, 1, null);
+        when(items.findByPrintRequestIdOrderByPrintRequestItemIdAsc(44)).thenReturn(List.of(item));
+        var uploaded = new ModelUploadResponse(6, 13, 22, "fixed", 1, "stl", 3L,
+                "PRIVATE", Instant.now());
+        when(uploader.uploadModel(eq(7), any(), eq(upload))).thenReturn(uploaded);
+        when(modelFiles.findByFileIdAndModelVersionId(22, 13)).thenReturn(Optional.of(
+                new ModelFile(13, ModelFileRole.SOURCE_MODEL, "stl", "new-key",
+                        "model/stl", null, 3L, true)));
+        when(files.saveAndFlush(any())).thenAnswer(call -> call.getArgument(0));
+
+        assertEquals(2, service.correct(7, 44, 1, upload).version());
+        assertEquals(1, oldFile.getVersion());
+        assertEquals(2, request.getCurrentFileVersion());
+        assertEquals(1, request.getCurrentSpecVersion());
+        assertFalse(request.isPreviewConfirmed());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> service.correct(7, 44, 2, upload)).getStatus());
+        verify(uploader, times(1)).uploadModel(eq(7), any(), eq(upload));
+        verify(files, times(1)).saveAndFlush(any());
     }
 
     @Test
