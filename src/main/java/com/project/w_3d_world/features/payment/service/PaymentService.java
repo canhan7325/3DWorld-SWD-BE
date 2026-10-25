@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 
 public interface PaymentService {
     PaymentResponse create(int userId, CreatePaymentRequest request);
+    PaymentResponse status(int userId, int transactionId);
     void callback(String data, String mac);
 
     void reconcilePending();
