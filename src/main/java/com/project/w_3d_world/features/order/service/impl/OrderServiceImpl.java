@@ -22,6 +22,8 @@ import com.project.w_3d_world.features.order.repository.PhysicalOrderItemReposit
 import com.project.w_3d_world.features.order.repository.PhysicalOrderRepository;
 import com.project.w_3d_world.features.order.service.OrderService;
 import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
+import com.project.w_3d_world.features.shipping.service.ShippingQuoteService;
+import com.project.w_3d_world.features.shipping.dto.ShippingQuoteDtos.ShopQuote;
 import com.project.w_3d_world.features.user.repository.UserAddressRepository;
 import com.project.w_3d_world.features.user.repository.UserRepository;
 import java.math.BigDecimal;
@@ -48,6 +50,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderStatusHistoryRepository history;
     private final UserRepository users;
     private final UserAddressRepository addresses;
+    private final ShippingQuoteService shippingQuotes;
 
     @Value("${app.order.reservation-ttl-minutes:15}")
     private long reservationTtlMinutes;
@@ -101,6 +104,9 @@ public class OrderServiceImpl implements OrderService {
         selected.stream().map(CartItem::getVariantId).distinct().sorted().forEach(id ->
                 locked.put(id, variants.findByIdForUpdate(id)
                         .orElseThrow(() -> ApiException.invalidRequest("Variant does not exist."))));
+        var quotedShops = shippingQuotes.enabled()
+                ? shippingQuotes.validate(userId, request.cartItemIds(), request.shippingAddressId(), request.shippingQuoteToken())
+                : Map.<Integer, ShopQuote>of();
         Map<Integer, List<CartItem>> groups = new TreeMap<>();
         for (CartItem item : selected) {
             ProductVariant variant = locked.get(item.getVariantId());
@@ -132,20 +138,26 @@ public class OrderServiceImpl implements OrderService {
                             .multiply(BigDecimal.valueOf(item.getQuantity())))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             PhysicalOrder order = new PhysicalOrder(userId, entry.getKey(), addressJson,
-                    checkoutGroup, subtotal, shippingFee);
+                    checkoutGroup, subtotal, quotedShops.containsKey(entry.getKey())
+                            ? quotedShops.get(entry.getKey()).selected().shippingFee() : shippingFee);
             order.setShippingAddressId(address.getId());
             order.initializeCheckout(request.idempotencyKey(), fingerprint, expiry,
                     commissionRate, refundHours, autoConfirmHours);
             orders.saveAndFlush(order);
             order.transition("PENDING_PAYMENT");
             history.save(new OrderStatusHistory(order.getId(), null, "PENDING_PAYMENT", userId, "Checkout"));
+            Map<Integer, PhysicalOrderItem> checkoutItems = new TreeMap<>();
             for (CartItem item : entry.getValue()) {
                 ProductVariant variant = locked.get(item.getVariantId());
                 PhysicalOrderItem orderItem = new PhysicalOrderItem(order.getId(), variant.getId(),
                         variant.getSku(), variant.getVariantAttributes(), item.getQuantity(), variant.getUnitPrice());
                 orderItem.snapshotProductTitle(products.findById(variant.getProductId()).orElseThrow().getTitle());
-                orderItems.save(orderItem);
+                orderItems.saveAndFlush(orderItem);
+                checkoutItems.put(item.getId(), orderItem);
                 cartItems.delete(item);
+            }
+            if (quotedShops.containsKey(entry.getKey())) {
+                shippingQuotes.persist(order, quotedShops.get(entry.getKey()), checkoutItems);
             }
             result.add(response(order));
         }

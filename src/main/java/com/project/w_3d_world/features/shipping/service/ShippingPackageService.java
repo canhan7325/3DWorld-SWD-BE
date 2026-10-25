@@ -69,6 +69,10 @@ public class ShippingPackageService {
         if (storefronts.findByOwnerUserId(actor).filter(store -> store.getId().equals(order.getStorefrontId())).isEmpty()) {
             authorization.requireRole(actor, RoleCode.ADMIN, RoleCode.PRINT_STAFF);
         }
+        if (ShippingQuoteService.VERSION.equals(order.getShippingCalculationVersion())) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Quoted GHTK packages are fixed at checkout. Carrier repricing requires a separate review.");
+        }
         if (!"PROCESSING".equals(order.getStatus())) {
             throw new ApiException(HttpStatus.CONFLICT, "Packages may be prepared only before shipment of a processing order.");
         }

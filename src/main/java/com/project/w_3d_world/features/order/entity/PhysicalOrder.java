@@ -222,4 +222,7 @@ public class PhysicalOrder {
         shippingQuotedAt = Instant.now();
         updatedAt = Instant.now();
     }
+    public void markShippingQuoteVersion(String version) {
+        shippingCalculationVersion = version;
+    }
 }
