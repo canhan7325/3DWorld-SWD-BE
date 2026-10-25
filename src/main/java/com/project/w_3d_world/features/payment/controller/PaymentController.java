@@ -40,6 +40,18 @@ public class PaymentController {
         return ApiResponse.success(paymentService.create(user.userId(), request));
     }
 
+    @org.springframework.web.bind.annotation.GetMapping("/{transactionId}/status")
+    @PreAuthorize("isAuthenticated()")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Query verified payment status",
+            description = "Call this from the FE payment-result page with transactionId from the redirect URL. "
+                    + "Requires the payer's Bearer token. Backend queries ZaloPay and applies payment once. "
+                    + "Poll every 3-5 seconds while PENDING/UNKNOWN. Never trust redirect query parameters as proof of payment.")
+    public ApiResponse<PaymentResponse> status(@AuthenticationPrincipal AuthenticatedUser user,
+                                               @PathVariable int transactionId) {
+        return ApiResponse.success(paymentService.status(user.userId(), transactionId));
+    }
+
     @PostMapping("/{transactionId}/refund")
     @PreAuthorize("isAuthenticated()")
     @SecurityRequirement(name = "bearerAuth")

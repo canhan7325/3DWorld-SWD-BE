@@ -90,7 +90,10 @@ public class PaymentServiceImpl implements PaymentService {
         String appTransId = LocalDate.now(ZoneOffset.UTC).format(APP_TRANS_DATE)
                 + "_" + attempt.getId();
         attempt.reference(appTransId);
-        String embedData = "{}";
+        String redirectUrl = org.springframework.web.util.UriComponentsBuilder
+                .fromUriString(properties.redirectUrl())
+                .queryParam("transactionId", transaction.getId()).build().toUriString();
+        String embedData = JsonValues.write(Map.of("redirecturl", redirectUrl));
         String item = "[]";
         int amountVnd = toAmount(amount);
         String signData = properties.appId() + "|" + appTransId + "|user-" + userId
@@ -106,7 +109,9 @@ public class PaymentServiceImpl implements PaymentService {
                 ? "3DWorld payment" : request.description());
         payload.put("embed_data", embedData);
         payload.put("item", item);
-        payload.put("callback_url", properties.callbackUrl());
+        if (properties.callbackUrl() != null && !properties.callbackUrl().isBlank()) {
+            payload.put("callback_url", properties.callbackUrl());
+        }
         payload.put("mac", zaloPay.signCreateOrder(signData));
 
         Map<String, Object> response;
@@ -168,43 +173,63 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     @Transactional
-    public void reconcilePending() {
-        for (PaymentAttempt candidate : attempts.findByAttemptStatusAndProviderName(
-                "REQUESTED", "ZALOPAY")) {
-            PaymentAttempt attempt = attempts.lockById(candidate.getId()).orElseThrow();
-            if (!"REQUESTED".equals(attempt.getAttemptStatus())) {
-                continue;
-            }
-            PaymentTransaction transaction = transactions.lockById(attempt.getTransactionId())
-                    .orElse(null);
-            if (transaction == null || attempt.getExternalReference() == null) {
-                continue;
-            }
+    public PaymentResponse status(int userId, int transactionId) {
+        // Check ownership before querying the provider; never trust the browser redirect's status.
+        PaymentTransaction snapshot = transactions.findById(transactionId)
+                .filter(value -> Integer.valueOf(userId).equals(value.getPayerUserId()))
+                .orElseThrow(() -> new ApiException(org.springframework.http.HttpStatus.NOT_FOUND,
+                        "Payment does not exist."));
+        PaymentAttempt candidate = attempts.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(
+                snapshot.getId(), "ZALOPAY").orElseThrow(() -> ApiException.invalidRequest("Payment attempt does not exist."));
+        // Same lock order as callback and reconciliation: attempt, then transaction.
+        PaymentAttempt attempt = attempts.lockById(candidate.getId()).orElseThrow();
+        PaymentTransaction transaction = transactions.lockById(transactionId).orElseThrow();
+        queryAndApply(attempt, transaction);
+        String status = "SUCCESS".equals(transaction.getStatus()) ? "SUCCESS"
+                : attempt.getReconciliationReason() != null && !"FAILED".equals(attempt.getAttemptStatus())
+                    ? "UNKNOWN" : transaction.getStatus();
+        return new PaymentResponse(transaction.getId(), attempt.getId(), attempt.getExternalReference(),
+                transaction.getAmount(), status, attempt.getOrderUrl(), null);
+    }
 
-            Map<String, Object> result;
-            try {
-                result = zaloPay.queryOrder(attempt.getExternalReference());
-                attempt.queried();
-            } catch (RuntimeException exception) {
-                attempt.reconciliation("Provider query unavailable; retry later.");
-                continue;
+    @Override
+    @Transactional
+    public void reconcilePending() {
+        for (PaymentAttempt candidate : attempts.findByAttemptStatusAndProviderName("REQUESTED", "ZALOPAY")) {
+            PaymentAttempt attempt = attempts.lockById(candidate.getId()).orElseThrow();
+            PaymentTransaction transaction = transactions.lockById(attempt.getTransactionId()).orElse(null);
+            if (transaction != null) queryAndApply(attempt, transaction);
+        }
+    }
+
+    private void queryAndApply(PaymentAttempt attempt, PaymentTransaction transaction) {
+        if ("SUCCESS".equals(transaction.getStatus()) || !"REQUESTED".equals(attempt.getAttemptStatus())
+                || attempt.getExternalReference() == null) return;
+        Map<String, Object> result;
+        try {
+            result = zaloPay.queryOrder(attempt.getExternalReference());
+            attempt.queried();
+        } catch (RuntimeException exception) {
+            attempt.reconciliation("Provider query unavailable; retry later.");
+            return;
+        }
+        String returnCode = stringValue(result.get("return_code"));
+        if ("1".equals(returnCode)) {
+            if (result.get("amount") == null
+                    || parseLong(result.get("amount")) != toAmount(transaction.getAmount())
+                    || result.get("zp_trans_id") == null) {
+                attempt.reconciliation("Provider query payment details do not match.");
+                return;
             }
-            String returnCode = stringValue(result.get("return_code"));
-            if ("1".equals(returnCode)) {
-                if (result.get("amount") == null
-                        || parseLong(result.get("amount")) != toAmount(transaction.getAmount())) {
-                    attempt.reconciliation("Provider query amount does not match.");
-                    continue;
-                }
-                attempt.providerTransaction(stringValue(result.get("zp_trans_id")));
-                attempt.recordEvent(JsonValues.write(result));
-                attempt.success();
-                transaction.markSuccess();
-                orderPayments.verified(transaction);
-            } else if ("-1".equals(returnCode)) {
-                attempt.fail();
-                transaction.markFailed();
-            }
+            attempt.providerTransaction(stringValue(result.get("zp_trans_id")));
+            attempt.recordEvent(JsonValues.write(result));
+            attempt.success();
+            transaction.markSuccess();
+            orderPayments.verified(transaction);
+        } else if ("2".equals(returnCode)) {
+            // ZaloPay query: 1 = paid, 2 = failed, 3 = processing. Unknown codes stay unresolved.
+            attempt.fail();
+            transaction.markFailed();
         }
     }
 
