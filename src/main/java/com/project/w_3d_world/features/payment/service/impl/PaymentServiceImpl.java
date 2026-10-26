@@ -296,7 +296,7 @@ private void queryAndApply(PaymentAttempt attempt, PaymentTransaction transactio
         attempt.success();
         transaction.markSuccess();
         applyVerifiedFulfillment(transaction);
-    } else if ("-1".equals(returnCode)) {
+    } else if ("2".equals(returnCode)) {
         attempt.fail();
         transaction.markFailed();
     }

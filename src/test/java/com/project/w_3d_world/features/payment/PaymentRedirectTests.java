@@ -18,7 +18,6 @@ import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class PaymentRedirectTests {
@@ -37,7 +36,7 @@ class PaymentRedirectTests {
         var config = new ZaloPayProperties(2554, "key1", "key2", "create", "query", "refund", "",
                 "http://localhost:5173/payment-result");
         service = new PaymentServiceImpl(transactions, attempts, provider, config, sources, users,
-                fulfillment, mock(JdbcTemplate.class));
+                fulfillment);
         transaction = new PaymentTransaction("PHYSICAL_ORDER", "operation", 7, "FULL", new BigDecimal("10000"));
         ReflectionTestUtils.setField(transaction, "id", 11);
         attempt = new PaymentAttempt(11, "request", "ZALOPAY");
