@@ -50,7 +50,7 @@ class PaymentPodContractTest {
         users = mock(UserRepository.class);
         orders = mock(OrderPaymentService.class);
         payments = new PaymentServiceImpl(transactions, attempts, provider,
-                new ZaloPayProperties(1, "test-key", "test-key", "", "", "", ""),
+                new ZaloPayProperties(1, "test-key", "test-key", "", "", "", "", ""),
                 sources, users, orders);
     }
 
@@ -339,8 +339,9 @@ class PaymentPodContractTest {
         verifyNoInteractions(orders);
     }
 
-    @Test
-    void inconclusiveProviderQueryDoesNotCancelOrFailPod() {
+    @ParameterizedTest
+    @ValueSource(ints = {3, -1})
+    void inconclusiveProviderQueryDoesNotCancelOrFailPod(int returnCode) {
         PaymentTransaction transaction = podTransaction();
         PaymentAttempt attempt = new PaymentAttempt(1, "attempt", "ZALOPAY");
         ReflectionTestUtils.setField(attempt, "id", 22);
@@ -349,7 +350,7 @@ class PaymentPodContractTest {
                 .thenReturn(List.of(attempt));
         when(attempts.lockById(22)).thenReturn(Optional.of(attempt));
         when(transactions.lockById(1)).thenReturn(Optional.of(transaction));
-        when(provider.queryOrder("provider-ref")).thenReturn(Map.of("return_code", 2));
+        when(provider.queryOrder("provider-ref")).thenReturn(Map.of("return_code", returnCode));
 
         payments.reconcilePending();
 
@@ -368,7 +369,7 @@ class PaymentPodContractTest {
                 .thenReturn(List.of(attempt));
         when(attempts.lockById(22)).thenReturn(Optional.of(attempt));
         when(transactions.lockById(1)).thenReturn(Optional.of(transaction));
-        when(provider.queryOrder("provider-ref")).thenReturn(Map.of("return_code", -1));
+        when(provider.queryOrder("provider-ref")).thenReturn(Map.of("return_code", 2));
 
         payments.reconcilePending();
 
