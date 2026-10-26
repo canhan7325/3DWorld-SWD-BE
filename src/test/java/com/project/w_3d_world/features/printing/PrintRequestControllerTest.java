@@ -7,14 +7,31 @@ import com.project.w_3d_world.common.service.JwtService;
 import com.project.w_3d_world.features.auth.service.AuthSessionService;
 import com.project.w_3d_world.features.model.download.AuthorizedModelDownload;
 import com.project.w_3d_world.features.printing.controller.PrintRequestController;
-import com.project.w_3d_world.features.printing.service.PrintRequestFileCreateService;
-import com.project.w_3d_world.features.printing.service.PrintRequestFileDownloadService;
-import com.project.w_3d_world.features.printing.service.PrintRequestFileVersionService;
+import com.project.w_3d_world.features.printing.controller.StaffPrintRequestController;
+import com.project.w_3d_world.features.printing.dto.response.PrintQuoteItemResponse;
+import com.project.w_3d_world.features.printing.dto.response.PrintQuoteResponse;
+import com.project.w_3d_world.features.printing.exception.PrintRequestExceptionHandler;
+import com.project.w_3d_world.features.printing.exception.StaffPrintRequestExceptionHandler;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestQuoteService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestWorkflowService;
+import com.project.w_3d_world.features.printing.dto.response.PrintRequestWorkflowResponse;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestStaffAccessService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestTechnicalReviewService;
+import com.project.w_3d_world.features.printing.dto.response.PrintRequestTechnicalReviewResponse;
+import com.project.w_3d_world.features.printing.dto.response.StaffPrintRequestResponse;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileCreateService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileDownloadService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestFileVersionService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestSpecificationService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestStateService;
 import com.project.w_3d_world.features.printing.dto.response.PagedPrintRequestResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestItemResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestResponse;
+import com.project.w_3d_world.features.printing.dto.response.PrintRequestSpecVersionResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestFileVersionResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestSummaryResponse;
+import com.project.w_3d_world.features.printing.dto.response.PrintRequestStateResponse;
+import com.project.w_3d_world.features.printing.dto.response.PrintRequestStatusHistoryResponse;
 import com.project.w_3d_world.features.printing.service.PrintRequestService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +68,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
@@ -64,6 +82,12 @@ class PrintRequestControllerTest {
     @Autowired PrintRequestFileCreateService fileCreate;
     @Autowired PrintRequestFileDownloadService fileDownload;
     @Autowired PrintRequestFileVersionService fileVersions;
+    @Autowired PrintRequestSpecificationService specifications;
+    @Autowired PrintRequestStateService states;
+    @Autowired PrintRequestStaffAccessService staffAccess;
+    @Autowired PrintRequestTechnicalReviewService staffReviews;
+    @Autowired PrintRequestQuoteService quotes;
+    @Autowired PrintRequestWorkflowService workflow;
     @Autowired AuthSessionService sessions;
     @Autowired JwtService jwt;
 
@@ -72,7 +96,8 @@ class PrintRequestControllerTest {
 
     @BeforeEach
     void setUp() {
-        reset(service, fileCreate, fileDownload, fileVersions, sessions);
+        reset(service, fileCreate, fileDownload, fileVersions, specifications, states,
+                staffAccess, staffReviews, quotes, workflow, sessions);
         mvc = webAppContextSetup(context).apply(springSecurity()).build();
         customerToken = token("CUSTOMER");
         var summary = new PrintRequestSummaryResponse(10, "DRAFT", "Prototype",
@@ -84,6 +109,10 @@ class PrintRequestControllerTest {
         when(service.getMyRequestById(anyInt(), anyInt()))
                 .thenReturn(new PrintRequestResponse(10, "DRAFT", "Prototype",
                         Instant.parse("2026-01-01T00:00:00Z"), null, null, List.of(item)));
+        when(workflow.forCustomer(7, 10)).thenReturn(new PrintRequestWorkflowResponse(
+                "DRAFT", null, null, null, 1, 1,
+                new PrintRequestWorkflowResponse.AllowedActions(
+                        true, true, false, false, false, false, false, true)));
     }
 
     @Test
@@ -105,6 +134,88 @@ class PrintRequestControllerTest {
         verify(sessions).validateSession(eq(7), any(UUID.class), any(Instant.class));
         assertFalse(result.getResponse().getContentAsString().contains("uploadedFileKey"));
         assertFalse(result.getResponse().getContentAsString().contains("estimatedUnitCost"));
+    }
+
+    @Test
+    void previewAndStatusHistoryRequireCustomerIdentity() throws Exception {
+        when(states.confirmPreview(eq(7), eq(10), any())).thenReturn(
+                new PrintRequestStateResponse(10, "DRAFT", true, true, 2, 3,
+                        null, null, Instant.parse("2026-10-24T00:00:00Z")));
+        when(states.history(7, 10)).thenReturn(List.of(
+                new PrintRequestStatusHistoryResponse(1, null, "DRAFT",
+                        Instant.parse("2026-10-24T00:00:00Z"), 7, null)));
+        mvc.perform(post("/api/print/requests/getId/10/preview/confirm")
+                        .header("Authorization", customerToken)
+                        .contentType("application/json")
+                        .content("{\"expectedFileVersion\":2,\"expectedSpecVersion\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.previewConfirmed").value(true));
+        mvc.perform(get("/api/print/requests/getId/10/status-history")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].toStatus").value("DRAFT"));
+        mvc.perform(post("/api/print/requests/getId/10/preview/confirm")
+                        .header("Authorization", customerToken)
+                        .contentType("application/json")
+                        .content("{\"expectedFileVersion\":0,\"expectedSpecVersion\":3}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/print/requests/getId/10/status-history"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/print/requests/getId/10/status-history")
+                        .header("Authorization", token("PRINT_STAFF")))
+                .andExpect(status().isForbidden());
+        verify(states).confirmPreview(eq(7), eq(10), any());
+        verify(states).history(7, 10);
+    }
+
+    @Test
+    void submitUsesCustomerIdentityAndExpectedVersions() throws Exception {
+        when(states.submit(eq(7), eq(10), any())).thenReturn(
+                new PrintRequestStateResponse(10, "SUBMITTED", true, true, 2, 3,
+                        Instant.parse("2026-10-24T00:00:00Z"), null,
+                        Instant.parse("2026-10-24T00:00:00Z")));
+        mvc.perform(post("/api/print/requests/getId/10/submit")
+                        .header("Authorization", customerToken)
+                        .contentType("application/json")
+                        .content("{\"expectedFileVersion\":2,\"expectedSpecVersion\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("SUBMITTED"));
+        mvc.perform(post("/api/print/requests/getId/10/submit")
+                        .header("Authorization", customerToken)
+                        .contentType("application/json")
+                        .content("{\"expectedFileVersion\":2}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/print/requests/getId/10/submit")
+                        .header("Authorization", token("PRINT_STAFF"))
+                        .contentType("application/json")
+                        .content("{\"expectedFileVersion\":2,\"expectedSpecVersion\":3}"))
+                .andExpect(status().isForbidden());
+        verify(states).submit(eq(7), eq(10), any());
+    }
+
+    @Test
+    void cancelRequiresCustomerAndReason() throws Exception {
+        when(states.cancel(eq(7), eq(10), any())).thenReturn(
+                new PrintRequestStateResponse(10, "CANCELLED", true, false, 1, 1,
+                        null, Instant.parse("2026-10-24T00:00:00Z"),
+                        Instant.parse("2026-10-24T00:00:00Z")));
+        mvc.perform(post("/api/print/requests/getId/10/cancel")
+                        .header("Authorization", customerToken)
+                        .contentType("application/json")
+                        .content("{\"reason\":\"No longer needed\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+        mvc.perform(post("/api/print/requests/getId/10/cancel")
+                        .header("Authorization", customerToken)
+                        .contentType("application/json")
+                        .content("{\"reason\":\"\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/print/requests/getId/10/cancel")
+                        .header("Authorization", token("PRINT_STAFF"))
+                        .contentType("application/json")
+                        .content("{\"reason\":\"No longer needed\"}"))
+                .andExpect(status().isForbidden());
+        verify(states).cancel(eq(7), eq(10), any());
     }
 
     @Test
@@ -172,6 +283,66 @@ class PrintRequestControllerTest {
                 .andExpect(content().bytes(bytes))
                 .andExpect(header().string("Cache-Control", "private, no-store"));
         verify(fileVersions).download(7, 10, 1);
+    }
+
+    @Test
+    void customerCanUpdateAndReadSpecificationVersions() throws Exception {
+        var version = new PrintRequestSpecVersionResponse(101, 2,
+                JsonMapper.builder().build().readTree("{\"items\":[{\"materialId\":3}]}"),
+                Instant.parse("2026-10-24T00:00:00Z"), 7, true);
+        when(specifications.update(eq(7), eq(10), any())).thenReturn(version);
+        var body = "{\"expectedCurrentSpecVersion\":1,\"items\":[{\"printRequestItemId\":21,"
+                + "\"materialId\":3,\"quantity\":2}]}";
+        mvc.perform(patch("/api/print/requests/getId/10/specifications")
+                        .contentType("application/json").content(body)
+                        .header("Authorization", customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.version").value(2))
+                .andExpect(jsonPath("$.data.specificationData.items[0].materialId").value(3))
+                .andExpect(jsonPath("$.data.isCurrent").value(true));
+        verify(specifications).update(eq(7), eq(10), any());
+
+        when(specifications.history(7, 10)).thenReturn(List.of(version));
+        mvc.perform(get("/api/print/requests/getId/10/specifications/versions")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].version").value(2));
+        verify(specifications).history(7, 10);
+    }
+
+    @Test
+    void specificationRoutesRequireCustomerAndPreserveOwnerAndStaleStatuses() throws Exception {
+        var body = "{\"expectedCurrentSpecVersion\":1,\"items\":[{\"printRequestItemId\":21,"
+                + "\"materialId\":3,\"quantity\":2}]}";
+        mvc.perform(patch("/api/print/requests/getId/10/specifications")
+                        .contentType("application/json").content(body))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(patch("/api/print/requests/getId/10/specifications")
+                        .contentType("application/json").content(body)
+                        .header("Authorization", "Bearer invalid"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/print/requests/getId/10/specifications/versions")
+                        .header("Authorization", token("PRINT_STAFF")))
+                .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/print/requests/getId/10/specifications")
+                        .contentType("application/json")
+                        .content("{\"items\":[]}").header("Authorization", customerToken))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(specifications);
+
+        when(specifications.update(eq(7), eq(10), any())).thenThrow(
+                new ApiException(HttpStatus.NOT_FOUND, "Print Request was not found."));
+        mvc.perform(patch("/api/print/requests/getId/10/specifications")
+                        .contentType("application/json").content(body)
+                        .header("Authorization", customerToken))
+                .andExpect(status().isNotFound());
+        reset(specifications);
+        when(specifications.update(eq(7), eq(10), any())).thenThrow(
+                new ApiException(HttpStatus.CONFLICT, "The spec version is stale."));
+        mvc.perform(patch("/api/print/requests/getId/10/specifications")
+                        .contentType("application/json").content(body)
+                        .header("Authorization", customerToken))
+                .andExpect(status().isConflict());
     }
 
     @Test
@@ -315,6 +486,7 @@ class PrintRequestControllerTest {
         assertFalse(body.contains("uploadedFileKey"));
         assertFalse(body.contains("estimatedUnitCost"));
         assertFalse(body.contains("customerUserId"));
+        org.junit.jupiter.api.Assertions.assertTrue(body.contains("\"displayStatus\":\"DRAFT\""));
     }
 
     @Test
@@ -358,6 +530,156 @@ class PrintRequestControllerTest {
     }
 
     @Test
+    void staffRoutesRequireStaffOrAdminAndReturnNoStorageKey() throws Exception {
+        when(staffAccess.detail(10)).thenReturn(new StaffPrintRequestResponse(
+                10, "SUBMITTED", Instant.parse("2026-10-25T00:00:00Z"), 1, 1,
+                new PrintRequestFileVersionResponse(10, 1, "shape.stl", 3L,
+                        "model/stl", Instant.parse("2026-10-25T00:00:00Z"), true,
+                        "/api/staff/print/requests/10/file/download"),
+                JsonMapper.builder().build().readTree("{\"items\":[]}"), List.of(), List.of()));
+        var result = mvc.perform(get("/api/staff/print/requests/10")
+                        .header("Authorization", token("PRINT_STAFF")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.currentFileVersion").value(1))
+                .andReturn();
+        assertFalse(result.getResponse().getContentAsString().contains("storageKey"));
+        mvc.perform(get("/api/staff/print/requests/10")
+                        .header("Authorization", token("ADMIN")))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/staff/print/requests/10")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/staff/print/requests/10"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/staff/print/requests/10")
+                        .header("Authorization", "Bearer invalid"))
+                .andExpect(status().isUnauthorized());
+        verify(staffAccess, times(2)).detail(10);
+    }
+
+    @Test
+    void staffCorrectionAndApprovalValidateVersionsAndRole() throws Exception {
+        when(staffReviews.requestCorrection(eq(7), eq(10), any())).thenReturn(
+                new PrintRequestTechnicalReviewResponse(20, "CORRECTION_REQUESTED",
+                        1, 1, "Unsupported geometry", 7, Instant.now()));
+        when(staffReviews.approve(eq(7), eq(10), any())).thenReturn(
+                new PrintRequestTechnicalReviewResponse(21, "APPROVED",
+                        2, 1, null, 7, Instant.now()));
+        mvc.perform(post("/api/staff/print/requests/10/request-correction")
+                        .header("Authorization", token("PRINT_STAFF"))
+                        .contentType("application/json")
+                        .content("{\"expectedFileVersion\":1,\"expectedSpecVersion\":1,"
+                                + "\"reason\":\"Unsupported geometry\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("CORRECTION_REQUESTED"));
+        mvc.perform(post("/api/staff/print/requests/10/approve-review")
+                        .header("Authorization", token("ADMIN"))
+                        .contentType("application/json")
+                        .content("{\"expectedFileVersion\":2,\"expectedSpecVersion\":1}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/staff/print/requests/10/request-correction")
+                        .header("Authorization", token("PRINT_STAFF"))
+                        .contentType("application/json")
+                        .content("{\"expectedFileVersion\":1,\"expectedSpecVersion\":1,"
+                                + "\"reason\":\" \"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/staff/print/requests/10/request-correction")
+                        .header("Authorization", customerToken)
+                        .contentType("application/json")
+                        .content("{\"expectedFileVersion\":1,\"expectedSpecVersion\":1,"
+                                + "\"reason\":\"Unsupported geometry\"}"))
+                .andExpect(status().isForbidden());
+        verify(staffReviews).requestCorrection(eq(7), eq(10), any());
+        verify(staffReviews).approve(eq(7), eq(10), any());
+    }
+
+    @Test
+    void staffDownloadOnlyUsesScopedPrintRequestFileService() throws Exception {
+        when(staffAccess.openCurrentFile(10)).thenReturn(new AuthorizedModelDownload(
+                new ByteArrayInputStream(new byte[]{1, 2, 3}), "print-request-10-file-v1.stl",
+                "model/stl", 3L));
+        mvc.perform(get("/api/staff/print/requests/10/file/download")
+                        .header("Authorization", token("PRINT_STAFF")))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(new byte[]{1, 2, 3}));
+        mvc.perform(get("/api/staff/print/requests/10/file/download")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isForbidden());
+        verify(staffAccess).openCurrentFile(10);
+    }
+
+    @Test
+    void staffAndCustomerQuoteAndRevisionRoutesEnforceRoleAndUpfrontContract() throws Exception {
+        var line = new PrintQuoteItemResponse(1, 21, 2, 1,
+                JsonMapper.builder().build().readTree("{\"materialId\":3}"), 2,
+                new BigDecimal("100.00"), new BigDecimal("50.00"),
+                new BigDecimal("0.00"), new BigDecimal("150.00"));
+        var quoteResponse = new PrintQuoteResponse(55, 10, 1, 2, 1,
+                new BigDecimal("150.00"), new BigDecimal("150.00"), new BigDecimal("0.00"),
+                null, Instant.parse("2026-10-25T00:00:00Z"),
+                Instant.parse("2026-10-26T00:00:00Z"), null, "ISSUED", true, 0, 3,
+                List.of(line));
+        when(quotes.issueQuote(eq(7), eq(10), any())).thenReturn(quoteResponse);
+        when(quotes.listStaffQuotes(10)).thenReturn(List.of(quoteResponse));
+        when(quotes.listCustomerQuotes(7, 10)).thenReturn(List.of(quoteResponse));
+        when(quotes.acceptQuote(7, 10, 55)).thenReturn(new PrintQuoteResponse(
+                55, 10, 1, 2, 1, new BigDecimal("150.00"), new BigDecimal("150.00"),
+                new BigDecimal("0.00"), null, Instant.parse("2026-10-25T00:00:00Z"),
+                Instant.parse("2026-10-26T00:00:00Z"), Instant.parse("2026-10-25T01:00:00Z"),
+                "ACCEPTED", true, 0, 3, List.of(line)));
+        when(quotes.requestRevision(eq(7), eq(10), eq(55), any())).thenReturn(
+                new PrintQuoteResponse(55, 10, 1, 2, 1, new BigDecimal("150.00"),
+                        new BigDecimal("150.00"), new BigDecimal("0.00"), null,
+                        Instant.parse("2026-10-25T00:00:00Z"),
+                        Instant.parse("2026-10-26T00:00:00Z"), null, "SUPERSEDED",
+                        false, 1, 2, List.of(line)));
+
+        String createQuoteBody = "{\"expectedFileVersion\":2,\"expectedSpecVersion\":1,"
+                + "\"items\":[{\"printRequestItemId\":21,\"materialCostSnapshot\":100.00,"
+                + "\"laborCostSnapshot\":50.00}]}";
+        mvc.perform(post("/api/staff/print/requests/10/quotes")
+                        .header("Authorization", token("PRINT_STAFF"))
+                        .contentType("application/json")
+                        .content(createQuoteBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.printQuoteId").value(55))
+                .andExpect(jsonPath("$.data.totalAmount").value(150.00))
+                .andExpect(jsonPath("$.data.depositAmount").value(150.00))
+                .andExpect(jsonPath("$.data.remainingAmount").value(0.00));
+        mvc.perform(post("/api/staff/print/requests/10/quotes")
+                        .header("Authorization", customerToken)
+                        .contentType("application/json")
+                        .content(createQuoteBody))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/staff/print/requests/10/quotes")
+                        .header("Authorization", token("ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].printQuoteId").value(55));
+        mvc.perform(get("/api/print/requests/getId/10/quotes")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].remainingRevisions").value(3));
+        mvc.perform(post("/api/print/requests/getId/10/quotes/55/accept")
+                        .header("Authorization", customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.quoteStatus").value("ACCEPTED"));
+        mvc.perform(post("/api/print/requests/getId/10/quotes/55/request-revision")
+                        .header("Authorization", customerToken)
+                        .contentType("application/json")
+                        .content("{\"expectedFileVersion\":2,\"expectedSpecVersion\":1,"
+                                + "\"reason\":\"Adjust infill and wall thickness\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.quoteStatus").value("SUPERSEDED"))
+                .andExpect(jsonPath("$.data.postQuoteRevisionsUsed").value(1))
+                .andExpect(jsonPath("$.data.remainingRevisions").value(2));
+        verify(quotes).issueQuote(eq(7), eq(10), any());
+        verify(quotes).listStaffQuotes(10);
+        verify(quotes).listCustomerQuotes(7, 10);
+        verify(quotes).acceptQuote(7, 10, 55);
+        verify(quotes).requestRevision(eq(7), eq(10), eq(55), any());
+    }
+
+    @Test
     void invalidPaginationAndIdsReturn400BeforeService() throws Exception {
         for (String[] parameter : new String[][]{{"page", "-1"}, {"page", "abc"},
                 {"size", "0"}, {"size", "51"}, {"size", "abc"}}) {
@@ -392,12 +714,32 @@ class PrintRequestControllerTest {
     @Configuration
     @EnableWebMvc
     @EnableWebSecurity
-    @Import({SecurityConfig.class, PrintRequestController.class, GlobalExceptionHandler.class})
+    @Import({SecurityConfig.class, PrintRequestController.class, StaffPrintRequestController.class,
+            PrintRequestExceptionHandler.class, StaffPrintRequestExceptionHandler.class,
+            GlobalExceptionHandler.class})
     static class Config implements WebMvcConfigurer {
         @Bean PrintRequestService printRequestService() { return mock(PrintRequestService.class); }
         @Bean PrintRequestFileCreateService printRequestFileCreateService() { return mock(PrintRequestFileCreateService.class); }
         @Bean PrintRequestFileDownloadService printRequestFileDownloadService() { return mock(PrintRequestFileDownloadService.class); }
         @Bean PrintRequestFileVersionService printRequestFileVersionService() { return mock(PrintRequestFileVersionService.class); }
+        @Bean PrintRequestSpecificationService printRequestSpecificationService() {
+            return mock(PrintRequestSpecificationService.class);
+        }
+        @Bean PrintRequestStateService printRequestStateService() {
+            return mock(PrintRequestStateService.class);
+        }
+        @Bean PrintRequestStaffAccessService printRequestStaffAccessService() {
+            return mock(PrintRequestStaffAccessService.class);
+        }
+        @Bean PrintRequestTechnicalReviewService printRequestTechnicalReviewService() {
+            return mock(PrintRequestTechnicalReviewService.class);
+        }
+        @Bean PrintRequestQuoteService printRequestQuoteService() {
+            return mock(PrintRequestQuoteService.class);
+        }
+        @Bean PrintRequestWorkflowService printRequestWorkflowService() {
+            return mock(PrintRequestWorkflowService.class);
+        }
         @Bean AuthSessionService authSessionService() { return mock(AuthSessionService.class); }
         @Bean JsonMapper mapper() { return JsonMapper.builder().build(); }
         @Bean JwtService jwt() {

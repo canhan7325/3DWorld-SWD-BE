@@ -1,6 +1,7 @@
 package com.project.w_3d_world.features.model.service.impl;
 
 import com.project.w_3d_world.features.model.enums.ModelFileRole;
+import com.project.w_3d_world.features.model.exception.ModelStorageException;
 import com.project.w_3d_world.features.model.service.ModelStorageService;
 import com.project.w_3d_world.features.model.storage.*;
 
@@ -21,7 +22,9 @@ import java.util.HexFormat;
 import java.util.Objects;
 import java.util.function.Supplier;
 
-import static com.project.w_3d_world.features.model.storage.ModelStorageException.Code.*;
+import static com.project.w_3d_world.features.model.exception.ModelErrors.storageFailure;
+import static com.project.w_3d_world.features.model.exception.ModelErrors.unsafeStoragePath;
+import static com.project.w_3d_world.features.model.exception.ModelStorageException.Code.*;
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static java.nio.file.StandardOpenOption.*;
 
@@ -117,7 +120,7 @@ public class LocalModelStorageService implements ModelStorageService {
                 return new StoredModelFile(key, format.extension(), format.mimeType(), size,
                         HexFormat.of().formatHex(digest.digest()));
             } catch (Exception exception) {
-                ModelStorageException failure = translate(exception);
+                ModelStorageException failure = storageFailure(exception);
                 if (temporary != null) {
                     try {
                         directories(temporary.getParent(), false);
@@ -150,7 +153,7 @@ public class LocalModelStorageService implements ModelStorageService {
                 if (channel != null) {
                     try { channel.close(); } catch (IOException close) { exception.addSuppressed(close); }
                 }
-                throw translate(exception);
+                throw storageFailure(exception);
             }
         }
     }
@@ -170,7 +173,7 @@ public class LocalModelStorageService implements ModelStorageService {
             } catch (NoSuchFileException exception) {
                 return false;
             } catch (Exception exception) {
-                throw translate(exception);
+                throw storageFailure(exception);
             }
         }
     }
@@ -200,7 +203,7 @@ public class LocalModelStorageService implements ModelStorageService {
     private Path resolve(Path root, String key) {
         keys.validate(key);
         Path resolved = root.resolve(key).normalize();
-        if (!resolved.startsWith(root)) throw unsafe();
+        if (!resolved.startsWith(root)) throw unsafeStoragePath();
         return resolved;
     }
 
@@ -217,20 +220,20 @@ public class LocalModelStorageService implements ModelStorageService {
                 attributes = attributes(current);
             }
             if (!attributes.isDirectory() || attributes.isSymbolicLink() || attributes.isOther()
-                    || !current.toRealPath().equals(current.toAbsolutePath().normalize())) throw unsafe();
+                    || !current.toRealPath().equals(current.toAbsolutePath().normalize())) throw unsafeStoragePath();
         }
     }
 
     private BasicFileAttributes regular(Path file) throws IOException {
         var attributes = attributes(file);
         if (!attributes.isRegularFile() || attributes.isSymbolicLink() || attributes.isOther()
-                || !file.toRealPath().equals(file.toAbsolutePath().normalize())) throw unsafe();
+                || !file.toRealPath().equals(file.toAbsolutePath().normalize())) throw unsafeStoragePath();
         return attributes;
     }
 
     private void verifyIdentity(Path file, Object expected) throws IOException {
         Object actual = regular(file).fileKey();
-        if (expected != null && !expected.equals(actual)) throw unsafe();
+        if (expected != null && !expected.equals(actual)) throw unsafeStoragePath();
     }
 
     private BasicFileAttributes attributes(Path path) throws IOException {
@@ -256,21 +259,4 @@ public class LocalModelStorageService implements ModelStorageService {
         catch (NoSuchAlgorithmException exception) { throw new IllegalStateException("SHA-256 unavailable", exception); }
     }
 
-    private static ModelStorageException unsafe() {
-        return new ModelStorageException(UNSAFE_PATH, "Storage path is not a safe managed directory or regular file.");
-    }
-
-    private static ModelStorageException translate(Exception exception) {
-        if (exception instanceof ModelStorageException storage) return storage;
-        if (exception instanceof AtomicMoveNotSupportedException) {
-            return new ModelStorageException(ATOMIC_MOVE_UNSUPPORTED, "Storage filesystem must support atomic moves.", exception);
-        }
-        if (exception instanceof NoSuchFileException) {
-            return new ModelStorageException(NOT_FOUND, "Stored file or managed directory was not found.", exception);
-        }
-        if (exception instanceof FileAlreadyExistsException) {
-            return new ModelStorageException(COLLISION, "Storage destination already exists.", exception);
-        }
-        return new ModelStorageException(IO_FAILURE, "Local storage operation failed.", exception);
-    }
 }

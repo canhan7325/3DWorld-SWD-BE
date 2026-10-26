@@ -202,6 +202,46 @@ class ModelPostgresIntegrationTest {
     }
 
     @Test
+    void printRequestKeepsItsSelectedVersionAcrossSaveAndRestore() throws Exception {
+        int owner = newUser();
+        byte[] original = new byte[]{11, 22, 33};
+        var first = upload.uploadModel(owner, new CreateModelRequest("Pinned source", null),
+                stl(original));
+        var firstFile = files.findById(first.fileId()).orElseThrow();
+        String originalKey = firstFile.getStorageKey();
+        String originalHash = firstFile.getFileHash();
+
+        int materialId = jdbc.queryForObject("insert into print_materials "
+                + "(material_name,technology_code) values (?,?) returning material_id",
+                Integer.class, "PLA", "FDM");
+        int requestId = jdbc.queryForObject("insert into print_requests "
+                + "(customer_user_id) values (?) returning print_request_id",
+                Integer.class, owner);
+        int itemId = jdbc.queryForObject("insert into print_request_items "
+                + "(print_request_id,model_version_id,material_id,quantity) "
+                + "values (?,?,?,?) returning print_request_item_id",
+                Integer.class, requestId, first.modelVersionId(), materialId, 1);
+
+        var second = save.saveVersion(owner, first.modelId(),
+                new SaveModelVersionRequest(first.modelVersionId(), "Edited after Print Request"),
+                stl(new byte[]{44, 55, 66}));
+        var third = restore.restoreVersion(owner, first.modelId(), first.modelVersionId(),
+                new RestoreModelVersionRequest(second.modelVersionId(), "Restore original"));
+
+        assertEquals(3, third.versionNumber());
+        assertEquals(first.modelVersionId(), jdbc.queryForObject(
+                "select model_version_id from print_request_items where print_request_item_id=?",
+                Integer.class, itemId));
+        assertEquals(originalKey, files.findById(first.fileId()).orElseThrow().getStorageKey());
+        assertEquals(originalHash, files.findById(first.fileId()).orElseThrow().getFileHash());
+        assertEquals(1, versions.findById(first.modelVersionId())
+                .orElseThrow().getVersionNumber());
+        try (var historical = download.openAuthorizedDownload(owner, first.modelId(), first.fileId())) {
+            assertArrayEquals(original, historical.inputStream().readAllBytes());
+        }
+    }
+
+    @Test
     void postgresEnforcesVersionParentSourcePrimaryAndFileForeignKeys() {
         int owner = newUser();
         var first = upload.uploadModel(owner, new CreateModelRequest("One", null),

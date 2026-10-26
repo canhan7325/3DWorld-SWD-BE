@@ -1,19 +1,18 @@
-package com.project.w_3d_world.features.model.controller;
+package com.project.w_3d_world.features.model.exception;
 
 import com.project.w_3d_world.common.response.ApiResponse;
-import com.project.w_3d_world.features.model.storage.ModelStorageException;
-
+import com.project.w_3d_world.features.model.controller.ModelUploadController;
+import jakarta.persistence.PersistenceException;
 import org.springframework.core.annotation.Order;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.multipart.support.MissingServletRequestPartException;
-import org.springframework.dao.DataAccessException;
 import org.springframework.transaction.TransactionException;
-import jakarta.persistence.PersistenceException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 @RestControllerAdvice(basePackageClasses = ModelUploadController.class)
 @Order(0)

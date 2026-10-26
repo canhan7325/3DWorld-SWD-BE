@@ -88,9 +88,84 @@ public class PrintRequest {
         this.createdAt = Instant.now();
     }
 
+    public void confirmCopyrightDeclaration() {
+        this.copyrightConfirmed = true;
+    }
+
+    public void confirmPreview() {
+        this.previewConfirmed = true;
+        this.updatedAt = Instant.now();
+    }
+
+    public void submit() {
+        Instant now = Instant.now();
+        this.status = "SUBMITTED";
+        this.submittedAt = now;
+        this.updatedAt = now;
+    }
+
+    public void requireRevision() {
+        this.status = "REQUIRES_REVISION";
+        this.currentQuoteId = null;
+        this.previewConfirmed = false;
+        this.updatedAt = Instant.now();
+    }
+
+    public void markQuoted(Integer quoteId, Integer staffUserId, Instant issuedAt) {
+        if (quoteId == null || quoteId <= 0) {
+            throw new IllegalArgumentException("Quote ID must be positive.");
+        }
+        Instant now = issuedAt == null ? Instant.now() : issuedAt;
+        this.currentQuoteId = quoteId;
+        this.status = "QUOTED";
+        this.handledByUserId = staffUserId;
+        this.handledAt = now;
+        this.updatedAt = now;
+    }
+
+    public void markQuoteAccepted(Integer quoteId, Instant acceptedAt) {
+        if (quoteId == null || !quoteId.equals(this.currentQuoteId)) {
+            throw new IllegalArgumentException("Accepted quote must match current quote.");
+        }
+        Instant now = acceptedAt == null ? Instant.now() : acceptedAt;
+        this.status = "QUOTE_ACCEPTED";
+        this.updatedAt = now;
+    }
+
+    public void lockForProduction(Instant lockedAt) {
+        Instant now = lockedAt == null ? Instant.now() : lockedAt;
+        this.status = "IN_QUEUE";
+        this.lockedAt = now;
+        this.updatedAt = now;
+    }
+
+    public void cancelExpiredQuote(String reason, Instant cancelledAt) {
+        Instant now = cancelledAt == null ? Instant.now() : cancelledAt;
+        this.status = "CANCELLED";
+        this.currentQuoteId = null;
+        this.cancellationReason = reason;
+        this.cancelledAt = now;
+        this.updatedAt = now;
+    }
+
+    public void cancel(String reason) {
+        Instant now = Instant.now();
+        this.status = "CANCELLED";
+        this.cancellationReason = reason;
+        this.cancelledAt = now;
+        this.updatedAt = now;
+    }
+
     public void useFileVersion(int version) {
         if (version <= 0) throw new IllegalArgumentException("File version must be positive.");
         this.currentFileVersion = version;
+        this.previewConfirmed = false;
+        this.updatedAt = Instant.now();
+    }
+
+    public void useSpecVersion(int version) {
+        if (version <= 0) throw new IllegalArgumentException("Spec version must be positive.");
+        this.currentSpecVersion = version;
         this.previewConfirmed = false;
         this.updatedAt = Instant.now();
     }

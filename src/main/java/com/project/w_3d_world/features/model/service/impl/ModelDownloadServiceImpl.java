@@ -3,12 +3,13 @@ package com.project.w_3d_world.features.model.service.impl;
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.model.download.AuthorizedModelDownload;
 import com.project.w_3d_world.features.model.entity.ModelFile;
+import com.project.w_3d_world.features.model.exception.ModelErrors;
+import com.project.w_3d_world.features.model.exception.ModelStorageException;
 import com.project.w_3d_world.features.model.repository.Model3DRepository;
 import com.project.w_3d_world.features.model.repository.ModelFileRepository;
 import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
 import com.project.w_3d_world.features.model.service.ModelDownloadService;
 import com.project.w_3d_world.features.model.service.ModelStorageService;
-import com.project.w_3d_world.features.model.storage.ModelStorageException;
 import com.project.w_3d_world.features.model.validation.ModelServiceValidation;
 
 import lombok.RequiredArgsConstructor;
@@ -43,11 +44,11 @@ public class ModelDownloadServiceImpl implements ModelDownloadService {
         ModelServiceValidation.validatePositive(modelId, "Model ID");
         ModelServiceValidation.validatePositive(fileId, "File ID");
         modelRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(modelId, authenticatedUserId)
-                .orElseThrow(ModelDownloadServiceImpl::notFound);
+                .orElseThrow(ModelErrors::modelFileNotFound);
 
-        ModelFile file = fileRepository.findById(fileId).orElseThrow(ModelDownloadServiceImpl::notFound);
+        ModelFile file = fileRepository.findById(fileId).orElseThrow(ModelErrors::modelFileNotFound);
         versionRepository.findByModelVersionIdAndModelId(file.getModelVersionId(), modelId)
-                .orElseThrow(ModelDownloadServiceImpl::notFound);
+                .orElseThrow(ModelErrors::modelFileNotFound);
 
         String extension = ModelServiceValidation.normalizeFileFormat(file.getFileFormat());
         String safeExtension = EXTENSIONS.getOrDefault(extension, "bin");
@@ -71,7 +72,4 @@ public class ModelDownloadServiceImpl implements ModelDownloadService {
         }
     }
 
-    private static ApiException notFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "Model file was not found.");
-    }
 }

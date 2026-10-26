@@ -85,4 +85,22 @@ public class PrintRequestItem {
         this.modelVersionId = modelVersionId;
         this.uploadedFileKey = null;
     }
+
+    public void updateSpecification(Integer materialId, String color, String quality,
+            Integer infillPercent, BigDecimal widthMm, BigDecimal heightMm,
+            BigDecimal depthMm, Integer quantity, String notes) {
+        this.materialId = materialId;
+        this.color = color;
+        this.quality = quality;
+        this.infillPercent = infillPercent;
+        this.widthMm = widthMm;
+        this.heightMm = heightMm;
+        this.depthMm = depthMm;
+        this.quantity = quantity;
+        this.notes = notes;
+    }
+
+    public void queueForProduction() {
+        this.productionStatus = "QUEUED";
+    }
 }

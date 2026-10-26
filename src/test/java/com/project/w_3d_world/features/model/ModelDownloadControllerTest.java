@@ -1,5 +1,7 @@
 package com.project.w_3d_world.features.model;
 
+import com.project.w_3d_world.features.model.exception.ModelUploadExceptionHandler;
+
 import com.project.w_3d_world.common.config.SecurityConfig;
 import com.project.w_3d_world.common.exception.GlobalExceptionHandler;
 import com.project.w_3d_world.features.model.controller.*;

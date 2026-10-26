@@ -4,6 +4,7 @@ import com.project.w_3d_world.common.config.AuthenticatedUser;
 import com.project.w_3d_world.common.response.ApiResponse;
 import com.project.w_3d_world.features.payment.dto.PaymentRequests.CreatePaymentRequest;
 import com.project.w_3d_world.features.payment.dto.PaymentResponses.PaymentResponse;
+import com.project.w_3d_world.features.payment.dto.PaymentResponses.PodPaymentStatusResponse;
 import com.project.w_3d_world.features.payment.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -15,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -40,18 +42,28 @@ public class PaymentController {
         return ApiResponse.success(paymentService.create(user.userId(), request));
     }
 
-    @org.springframework.web.bind.annotation.GetMapping("/{transactionId}/status")
-    @PreAuthorize("isAuthenticated()")
-    @SecurityRequirement(name = "bearerAuth")
-    @Operation(summary = "Query verified payment status",
-            description = "Call this from the FE payment-result page with transactionId from the redirect URL. "
-                    + "Requires the payer's Bearer token. Backend queries ZaloPay and applies payment once. "
-                    + "Poll every 3-5 seconds while PENDING/UNKNOWN. Never trust redirect query parameters as proof of payment.")
-    public ApiResponse<PaymentResponse> status(@AuthenticationPrincipal AuthenticatedUser user,
-                                               @PathVariable int transactionId) {
-        return ApiResponse.success(paymentService.status(user.userId(), transactionId));
-    }
+@GetMapping("/{transactionId}/status")
+@PreAuthorize("isAuthenticated()")
+@SecurityRequirement(name = "bearerAuth")
+@Operation(
+        summary = "Query verified payment status",
+        description = "Queries ZaloPay and applies a verified payment result.")
+public ApiResponse<PaymentResponse> status(
+        @AuthenticationPrincipal AuthenticatedUser user,
+        @PathVariable int transactionId) {
+    return ApiResponse.success(paymentService.status(user.userId(), transactionId));
+}
 
+@GetMapping("/print-requests/{printRequestId}")
+@PreAuthorize("isAuthenticated()")
+@SecurityRequirement(name = "bearerAuth")
+@Operation(summary = "Read the authenticated payer's POD payment status")
+public ApiResponse<PodPaymentStatusResponse> getPodStatus(
+        @AuthenticationPrincipal AuthenticatedUser user,
+        @PathVariable int printRequestId) {
+    return ApiResponse.success(paymentService.getPodStatus(user.userId(), printRequestId));
+}
+  
     @PostMapping("/{transactionId}/refund")
     @PreAuthorize("isAuthenticated()")
     @SecurityRequirement(name = "bearerAuth")

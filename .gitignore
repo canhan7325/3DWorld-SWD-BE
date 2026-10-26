@@ -36,3 +36,7 @@ build/
 .env
 .env.*
 !.env.example
+
+### Documentation ###
+docs/
+outputs/

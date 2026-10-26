@@ -7,7 +7,7 @@ import com.project.w_3d_world.features.model.enums.*;
 import com.project.w_3d_world.features.model.repository.*;
 import com.project.w_3d_world.features.model.service.*;
 import com.project.w_3d_world.features.model.service.impl.ModelDownloadServiceImpl;
-import com.project.w_3d_world.features.model.storage.ModelStorageException;
+import com.project.w_3d_world.features.model.exception.ModelStorageException;
 import org.junit.jupiter.api.*;
 import org.springframework.test.util.ReflectionTestUtils;
 import java.io.*;

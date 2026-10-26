@@ -2,6 +2,7 @@ package com.project.w_3d_world.features.payment.service;
 
 import com.project.w_3d_world.common.exception.ApiException;
 import java.math.BigDecimal;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -10,6 +11,8 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class PaymentSourceResolver {
     private final JdbcTemplate jdbc;
+
+    public record PodSource(Integer printRequestId, Integer printQuoteId, BigDecimal amount) {}
 
     public BigDecimal resolve(
             int userId,
@@ -20,8 +23,7 @@ public class PaymentSourceResolver {
         return switch (sourceType) {
             case "PHYSICAL_ORDER" -> physicalOrder(userId, sourceId, stage);
             case "RENTAL_CONTRACT" -> rental(userId, sourceId, stage);
-            case "PRINT_REQUEST" -> printRequest(userId, sourceId, stage);
-            case "PRINT_QUOTE" -> printQuote(userId, sourceId, stage);
+            case "PRINT_REQUEST", "PRINT_QUOTE" -> resolvePod(userId, sourceType, sourceId, stage).amount();
             case "SUBSCRIPTION" -> subscription(userId, sourceId, stage);
             case "WALLET" -> topUp(userId, sourceId, stage, requestedAmount);
             default -> throw ApiException.invalidRequest("Unsupported payment source.");
@@ -43,30 +45,32 @@ public class PaymentSourceResolver {
                 + "AND status = 'PENDING_PAYMENT'", id, userId);
     }
 
-    private BigDecimal printRequest(int userId, int id, String stage) {
-        String column = switch (stage) {
-            case "DEPOSIT" -> "deposit_amount";
-            case "REMAINING" -> "remaining_amount";
-            case "FULL" -> "total_amount";
-            default -> throw ApiException.invalidRequest("Unsupported print payment stage.");
-        };
-        return one("SELECT q." + column + " FROM print_quotes q "
+    public PodSource resolvePod(int userId, String sourceType, int sourceId, String stage) {
+        requireStage(stage, "FULL");
+        if (sourceId <= 0 || !("PRINT_REQUEST".equals(sourceType)
+                || "PRINT_QUOTE".equals(sourceType))) {
+            throw ApiException.invalidRequest("Invalid POD payment source.");
+        }
+        String sourceColumn = "PRINT_REQUEST".equals(sourceType)
+                ? "r.print_request_id" : "q.print_quote_id";
+        List<PodSource> matches = jdbc.query(
+                "SELECT r.print_request_id, q.print_quote_id, q.total_amount FROM print_quotes q "
                 + "JOIN print_requests r ON r.print_request_id = q.print_request_id "
-                + "WHERE q.print_request_id = ? AND r.customer_user_id = ? "
-                + "AND q.quote_status = 'ACCEPTED' ORDER BY q.version_number DESC LIMIT 1", id, userId);
-    }
-
-    private BigDecimal printQuote(int userId, int id, String stage) {
-        String column = switch (stage) {
-            case "DEPOSIT" -> "deposit_amount";
-            case "REMAINING" -> "remaining_amount";
-            case "FULL" -> "total_amount";
-            default -> throw ApiException.invalidRequest("Unsupported quote payment stage.");
-        };
-        return one("SELECT q." + column + " FROM print_quotes q "
-                + "JOIN print_requests r ON r.print_request_id = q.print_request_id "
-                + "WHERE q.print_quote_id = ? AND r.customer_user_id = ? "
-                + "AND q.quote_status = 'ACCEPTED'", id, userId);
+                + "WHERE " + sourceColumn + " = ? AND r.customer_user_id = ? "
+                + "AND r.current_quote_id = q.print_quote_id "
+                + "AND r.status = 'QUOTE_ACCEPTED' AND r.cancelled_at IS NULL "
+                + "AND r.locked_at IS NULL AND q.quote_status = 'ACCEPTED' "
+                + "AND q.accepted_at IS NOT NULL "
+                + "AND q.file_version_snapshot = r.current_file_version "
+                + "AND q.specification_version_snapshot = r.current_spec_version "
+                + "AND q.total_amount > 0 AND q.deposit_amount = q.total_amount "
+                + "AND q.remaining_amount = 0 FOR UPDATE OF r",
+                (result, row) -> new PodSource(result.getInt(1), result.getInt(2),
+                        result.getBigDecimal(3)), sourceId, userId);
+        if (matches.size() != 1) {
+            throw ApiException.invalidRequest("POD quote is not the current payable quote.");
+        }
+        return matches.getFirst();
     }
 
     private BigDecimal subscription(int userId, int id, String stage) {

@@ -5,7 +5,7 @@ import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.common.exception.GlobalExceptionHandler;
 import com.project.w_3d_world.common.service.JwtService;
 import com.project.w_3d_world.features.auth.service.AuthSessionService;
-import com.project.w_3d_world.features.model.controller.ModelUploadExceptionHandler;
+import com.project.w_3d_world.features.model.exception.ModelUploadExceptionHandler;
 import com.project.w_3d_world.features.model.controller.ModelVersionRestoreController;
 import com.project.w_3d_world.features.model.dto.request.RestoreModelVersionRequest;
 import com.project.w_3d_world.features.model.dto.response.RestoreModelVersionResponse;

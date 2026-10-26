@@ -13,7 +13,8 @@ import com.project.w_3d_world.features.model.repository.ModelFileRepository;
 import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
 import com.project.w_3d_world.features.model.service.ModelStorageService;
 import com.project.w_3d_world.features.model.service.ModelVersionSaveService;
-import com.project.w_3d_world.features.model.storage.ModelStorageException;
+import com.project.w_3d_world.features.model.exception.ModelStorageException;
+import com.project.w_3d_world.features.model.exception.ModelErrors;
 import com.project.w_3d_world.features.model.storage.StoredModelFile;
 import com.project.w_3d_world.features.model.validation.ModelServiceValidation;
 import lombok.RequiredArgsConstructor;
@@ -51,13 +52,13 @@ public class ModelVersionSaveServiceImpl implements ModelVersionSaveService {
         }
 
         modelRepository.findOwnedActiveByIdForUpdate(modelId, authenticatedUserId)
-                .orElseThrow(ModelVersionSaveServiceImpl::notFound);
+                .orElseThrow(ModelErrors::modelOrVersionNotFound);
         ModelVersion base = versionRepository
                 .findByModelVersionIdAndModelId(request.baseVersionId(), modelId)
-                .orElseThrow(ModelVersionSaveServiceImpl::notFound);
+                .orElseThrow(ModelErrors::modelOrVersionNotFound);
         ModelVersion latest = versionRepository
                 .findByModelIdOrderByVersionNumberDesc(modelId, PageRequest.of(0, 1))
-                .stream().findFirst().orElseThrow(ModelVersionSaveServiceImpl::notFound);
+                .stream().findFirst().orElseThrow(ModelErrors::modelOrVersionNotFound);
         if (!base.getModelVersionId().equals(latest.getModelVersionId())) {
             throw new ApiException(HttpStatus.CONFLICT, "The base Model Version is stale.");
         }
@@ -115,7 +116,4 @@ public class ModelVersionSaveServiceImpl implements ModelVersionSaveService {
         });
     }
 
-    private static ApiException notFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "Model or version was not found.");
-    }
 }

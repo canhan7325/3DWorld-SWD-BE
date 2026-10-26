@@ -22,7 +22,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static com.project.w_3d_world.features.model.enums.ModelFileRole.*;
-import static com.project.w_3d_world.features.model.storage.ModelStorageException.Code.*;
+import com.project.w_3d_world.features.model.exception.ModelStorageException;
+import static com.project.w_3d_world.features.model.exception.ModelStorageException.Code.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 

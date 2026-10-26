@@ -8,7 +8,8 @@ import com.project.w_3d_world.features.model.controller.*;
 import com.project.w_3d_world.features.model.dto.request.CreateModelRequest;
 import com.project.w_3d_world.features.model.dto.response.ModelUploadResponse;
 import com.project.w_3d_world.features.model.service.ModelUploadService;
-import com.project.w_3d_world.features.model.storage.ModelStorageException;
+import com.project.w_3d_world.features.model.exception.ModelStorageException;
+import com.project.w_3d_world.features.model.exception.ModelUploadExceptionHandler;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

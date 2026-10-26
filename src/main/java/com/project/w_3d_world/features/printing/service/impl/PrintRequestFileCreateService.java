@@ -1,4 +1,4 @@
-package com.project.w_3d_world.features.printing.service;
+package com.project.w_3d_world.features.printing.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.model.dto.request.CreateModelRequest;
@@ -7,6 +7,7 @@ import com.project.w_3d_world.features.model.validation.ModelServiceValidation;
 import com.project.w_3d_world.features.printing.dto.request.CreatePrintRequestItemRequest;
 import com.project.w_3d_world.features.printing.dto.request.CreatePrintRequestRequest;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestResponse;
+import com.project.w_3d_world.features.printing.service.PrintRequestService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +21,7 @@ public class PrintRequestFileCreateService {
     private final ModelUploadService modelUploadService;
     private final PrintRequestService printRequestService;
     private final PrintRequestFileVersionService fileVersionService;
+    private final PrintRequestSpecificationService specificationService;
 
     @Transactional
     public PrintRequestResponse create(Integer customerUserId, Integer materialId,
@@ -39,6 +41,7 @@ public class PrintRequestFileCreateService {
                 new CreatePrintRequestRequest(null, true, List.of(item)));
         fileVersionService.recordInitial(customerUserId, created.printRequestId(),
                 upload, file.getOriginalFilename());
+        specificationService.recordInitial(customerUserId, created.printRequestId());
         return created;
     }
 }

@@ -5,6 +5,7 @@ import com.project.w_3d_world.common.exception.GlobalExceptionHandler;
 import com.project.w_3d_world.common.service.JwtService;
 import com.project.w_3d_world.features.auth.service.AuthSessionService;
 import com.project.w_3d_world.features.printing.controller.AdminPrintMaterialController;
+import com.project.w_3d_world.features.printing.exception.PrintMaterialExceptionHandler;
 import com.project.w_3d_world.features.printing.dto.response.AdminPrintMaterialResponse;
 import com.project.w_3d_world.features.printing.dto.response.PagedAdminPrintMaterialResponse;
 import com.project.w_3d_world.features.printing.dto.request.CreatePrintMaterialRequest;
@@ -258,7 +259,8 @@ class AdminPrintMaterialControllerTest {
     @Configuration
     @EnableWebMvc
     @EnableWebSecurity
-    @Import({SecurityConfig.class, AdminPrintMaterialController.class, GlobalExceptionHandler.class})
+    @Import({SecurityConfig.class, AdminPrintMaterialController.class,
+            PrintMaterialExceptionHandler.class, GlobalExceptionHandler.class})
     static class Config implements WebMvcConfigurer {
         @Bean AdminPrintMaterialService materialService() { return mock(AdminPrintMaterialService.class); }
         @Bean AuthSessionService authSessionService() { return mock(AuthSessionService.class); }

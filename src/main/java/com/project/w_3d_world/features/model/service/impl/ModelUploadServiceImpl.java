@@ -14,7 +14,7 @@ import com.project.w_3d_world.features.model.repository.ModelFileRepository;
 import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
 import com.project.w_3d_world.features.model.service.ModelStorageService;
 import com.project.w_3d_world.features.model.service.ModelUploadService;
-import com.project.w_3d_world.features.model.storage.ModelStorageException;
+import com.project.w_3d_world.features.model.exception.ModelStorageException;
 import com.project.w_3d_world.features.model.storage.StoredModelFile;
 import com.project.w_3d_world.features.model.validation.ModelServiceValidation;
 

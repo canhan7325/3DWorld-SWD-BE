@@ -1,11 +1,11 @@
 package com.project.w_3d_world.features.model.service.impl;
 
-import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.model.dto.response.ModelFileInfoResponse;
 import com.project.w_3d_world.features.model.dto.response.ModelVersionDetailResponse;
 import com.project.w_3d_world.features.model.dto.response.ModelVersionSummaryResponse;
 import com.project.w_3d_world.features.model.dto.response.PagedModelVersionsResponse;
 import com.project.w_3d_world.features.model.entity.ModelVersion;
+import com.project.w_3d_world.features.model.exception.ModelErrors;
 import com.project.w_3d_world.features.model.repository.Model3DRepository;
 import com.project.w_3d_world.features.model.repository.ModelFileRepository;
 import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
@@ -49,7 +49,7 @@ public class ModelVersionHistoryServiceImpl implements ModelVersionHistoryServic
         requireOwnedModel(authenticatedUserId, modelId);
 
         ModelVersion version = versionRepository.findByModelVersionIdAndModelId(versionId, modelId)
-                .orElseThrow(ModelVersionHistoryServiceImpl::notFound);
+                .orElseThrow(ModelErrors::modelOrVersionNotFound);
         var files = fileRepository.findByModelVersionIdOrderByFileIdAsc(versionId).stream()
                 .map(file -> new ModelFileInfoResponse(file.getFileId(), file.getFileRole(),
                         file.getFileFormat(), file.getFileSize(), file.isPrimary()))
@@ -61,7 +61,7 @@ public class ModelVersionHistoryServiceImpl implements ModelVersionHistoryServic
 
     private void requireOwnedModel(Integer userId, Integer modelId) {
         modelRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(modelId, userId)
-                .orElseThrow(ModelVersionHistoryServiceImpl::notFound);
+                .orElseThrow(ModelErrors::modelOrVersionNotFound);
     }
 
     private static ModelVersionSummaryResponse summary(ModelVersion version) {
@@ -69,7 +69,4 @@ public class ModelVersionHistoryServiceImpl implements ModelVersionHistoryServic
                 version.getSourceType(), version.getParentVersionId(), version.getChangeNote(), version.getCreatedAt());
     }
 
-    private static ApiException notFound() {
-        return new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "Model or version was not found.");
-    }
 }
