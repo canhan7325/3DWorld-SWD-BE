@@ -25,8 +25,8 @@ import java.time.OffsetDateTime;
 public class ModelVersionHistoryController {
     private final ModelVersionHistoryService versionService;
 
-    @GetMapping("getId/{modelId}/versions")
-    @Operation(summary = "Retrieve the version history of an owned model")
+    @GetMapping("/getId/{modelId}/versions/getAll")
+    @Operation(summary = "Lấy lịch sử phiên bản của mô hình 3D")
     public ApiResponse<PagedModelVersionsResponse> getVersions(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable String modelId,
@@ -40,8 +40,8 @@ public class ModelVersionHistoryController {
                 versionService.getModelVersions(userId, parsedModelId, parsedPage, parsedSize), OffsetDateTime.now());
     }
 
-    @GetMapping("/{modelId}/versions/{versionId}")
-    @Operation(summary = "Retrieve version details and safe file metadata")
+    @GetMapping("/getId/{modelId}/versions/getId/{versionId}")
+    @Operation(summary = "Lấy chi tiết phiên bản và thông tin tệp an toàn")
     public ApiResponse<ModelVersionDetailResponse> getVersionDetails(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable String modelId,

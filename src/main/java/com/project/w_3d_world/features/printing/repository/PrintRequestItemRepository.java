@@ -9,4 +9,7 @@ public interface PrintRequestItemRepository extends Repository<PrintRequestItem,
     PrintRequestItem saveAndFlush(PrintRequestItem item);
 
     List<PrintRequestItem> findByPrintRequestIdOrderByPrintRequestItemIdAsc(Integer printRequestId);
+
+    List<PrintRequestItem> findByPrintRequestIdInOrderByPrintRequestIdAscPrintRequestItemIdAsc(
+            java.util.Collection<Integer> printRequestIds);
 }

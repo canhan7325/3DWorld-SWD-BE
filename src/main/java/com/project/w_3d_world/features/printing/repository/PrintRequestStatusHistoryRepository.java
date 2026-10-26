@@ -9,4 +9,7 @@ public interface PrintRequestStatusHistoryRepository extends Repository<PrintReq
 
     List<PrintRequestStatusHistory> findByPrintRequestIdOrderByChangedAtAscPrintStatusHistoryIdAsc(
             Integer printRequestId);
+
+    boolean existsByPrintRequestIdAndToStatusAndSourceEventIdStartingWith(
+            Integer printRequestId, String toStatus, String sourceEventIdPrefix);
 }

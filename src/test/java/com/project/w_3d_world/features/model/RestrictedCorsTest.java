@@ -38,7 +38,7 @@ class RestrictedCorsTest {
     @Test
     void originNotConfiguredOutsideDevelopmentIsDenied() throws Exception {
         MockMvc mvc = webAppContextSetup(context).apply(springSecurity()).build();
-        mvc.perform(options("/api/models/uploads")
+        mvc.perform(options("/api/models/create")
                         .header("Origin", "https://unapproved.example.invalid")
                         .header("Access-Control-Request-Method", "POST"))
                 .andExpect(status().isForbidden())
@@ -51,7 +51,7 @@ class RestrictedCorsTest {
         var environment = new MockEnvironment()
                 .withProperty("APP_CORS_ALLOWED_ORIGINS", "https://approved.example.invalid");
         var cors = config.corsConfigurationSource(environment)
-                .getCorsConfiguration(new org.springframework.mock.web.MockHttpServletRequest("GET", "/api/models/uploads"));
+                .getCorsConfiguration(new org.springframework.mock.web.MockHttpServletRequest("GET", "/api/models/create"));
         assertNotNull(cors);
         assertEquals("https://approved.example.invalid", cors.checkOrigin("https://approved.example.invalid"));
         assertNull(cors.checkOrigin("https://unapproved.example.invalid"));

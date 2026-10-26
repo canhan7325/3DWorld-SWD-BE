@@ -31,8 +31,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class ModelVersionSaveController {
     private final ModelVersionSaveService saveService;
 
-    @PostMapping(value = "/{modelId}/versions/save", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(summary = "Save a new version of an owned model")
+    @PostMapping(value = "/{modelId}/versions/create", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Tạo phiên bản mới cho mô hình 3D của người dùng")
     public ResponseEntity<ApiResponse<SaveModelVersionResponse>> save(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable String modelId,

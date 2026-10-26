@@ -151,7 +151,7 @@ class AdminPrintMaterialControllerTest {
                         .content("{\"materialName\":\"PLA\",\"technologyCode\":\"FDM\",\"unit\":\"GRAM\",\"estimatedUnitCost\":350.00}"))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value(201))
                 .andExpect(jsonPath("$.data.estimatedUnitCost").value(350.0));
-        mvc.perform(patch("/api/admin/print/materials/update/10").header("Authorization", adminToken)
+        mvc.perform(patch("/api/admin/print/materials/updateEstimatedCost/10").header("Authorization", adminToken)
                         .contentType("application/json").content("{\"estimatedUnitCost\":null}"))
                 .andExpect(status().isOk());
         mvc.perform(patch("/api/admin/print/materials/updateStatus/10").header("Authorization", adminToken)
@@ -174,7 +174,7 @@ class AdminPrintMaterialControllerTest {
         when(service.updateCost(eq(7), eq(99), any(UpdatePrintMaterialCostRequest.class)))
                 .thenThrow(new com.project.w_3d_world.common.exception.ApiException(
                         org.springframework.http.HttpStatus.NOT_FOUND, "Material was not found."));
-        mvc.perform(patch("/api/admin/print/materials/update/99").header("Authorization", adminToken)
+        mvc.perform(patch("/api/admin/print/materials/updateEstimatedCost/99").header("Authorization", adminToken)
                         .contentType("application/json").content("{\"estimatedUnitCost\":null}"))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value(404));
     }
@@ -201,7 +201,7 @@ class AdminPrintMaterialControllerTest {
                     .andExpect(status().isBadRequest());
         }
         for (String body : List.of("{}", "{\"unit\":\"ML\"}", "{\"estimatedUnitCost\":1,\"materialName\":\"ABS\"}")) {
-            mvc.perform(patch("/api/admin/print/materials/update/10").header("Authorization", adminToken)
+            mvc.perform(patch("/api/admin/print/materials/updateEstimatedCost/10").header("Authorization", adminToken)
                             .contentType("application/json").content(body))
                     .andExpect(status().isBadRequest());
         }
@@ -244,7 +244,7 @@ class AdminPrintMaterialControllerTest {
         return switch (route) {
             case 0 -> post("/api/admin/print/materials/create").contentType("application/json")
                     .content("{\"materialName\":\"PLA\",\"technologyCode\":\"FDM\",\"unit\":\"GRAM\"}");
-            case 1 -> patch("/api/admin/print/materials/update/10").contentType("application/json")
+            case 1 -> patch("/api/admin/print/materials/updateEstimatedCost/10").contentType("application/json")
                     .content("{\"estimatedUnitCost\":null}");
             case 2 -> patch("/api/admin/print/materials/updateStatus/10").contentType("application/json")
                     .content("{\"isActive\":false}");

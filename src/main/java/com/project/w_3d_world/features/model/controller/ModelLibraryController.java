@@ -26,8 +26,8 @@ import java.time.OffsetDateTime;
 public class ModelLibraryController {
     private final ModelLibraryService libraryService;
 
-    @GetMapping("/my")
-    @Operation(summary = "Retrieve the authenticated user's model library")
+    @GetMapping("/getAll")
+    @Operation(summary = "Lấy danh sách mô hình 3D của người dùng")
     public ApiResponse<PagedModelResponse> getMyModels(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "0") String page,
@@ -40,7 +40,7 @@ public class ModelLibraryController {
     }
 
     @GetMapping("getId/{modelId}")
-    @Operation(summary = "Retrieve one owned model and its latest version")
+    @Operation(summary = "Lấy chi tiết mô hình 3D và phiên bản mới nhất theo ID")
     public ApiResponse<ModelDetailResponse> getModelDetails(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable String modelId) {

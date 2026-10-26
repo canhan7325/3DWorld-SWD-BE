@@ -32,7 +32,7 @@ public class ModelVersionRestoreController {
 
     @PostMapping(value = "/{modelId}/versions/{versionId}/restore",
             consumes = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "Restore an earlier version as a new version of an owned model")
+    @Operation(summary = "Khôi phục phiên bản cũ bằng cách tạo phiên bản mô hình 3D mới")
     public ResponseEntity<ApiResponse<RestoreModelVersionResponse>> restore(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable String modelId, @PathVariable String versionId,

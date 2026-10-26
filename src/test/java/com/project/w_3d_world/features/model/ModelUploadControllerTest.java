@@ -74,7 +74,7 @@ class ModelUploadControllerTest {
 
     @Test
     void up19_authenticatedMultipart201UsesJwtOwnerAndHidesStorage() throws Exception {
-        var result = mvc.perform(multipart("/api/models/uploads").file(metadata("{\"modelName\":\"Dragon\"}"))
+        var result = mvc.perform(multipart("/api/models/create").file(metadata("{\"modelName\":\"Dragon\"}"))
                         .file(file()).header("Authorization", token).header("ownerUserId", "999").param("ownerUserId", "999"))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value(201))
                 .andExpect(jsonPath("$.message").value("Model uploaded successfully"))
@@ -88,14 +88,14 @@ class ModelUploadControllerTest {
 
     @Test
     void up05_noJwt401FromRealSecurityChain() throws Exception {
-        mvc.perform(multipart("/api/models/uploads").file(metadata("{\"modelName\":\"Dragon\"}")).file(file()))
+        mvc.perform(multipart("/api/models/create").file(metadata("{\"modelName\":\"Dragon\"}")).file(file()))
                 .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.status").value(401));
         verifyNoInteractions(service);
     }
 
     @Test
     void invalidJwt401FromRealFilter() throws Exception {
-        mvc.perform(multipart("/api/models/uploads").file(metadata("{\"modelName\":\"Dragon\"}")).file(file())
+        mvc.perform(multipart("/api/models/create").file(metadata("{\"modelName\":\"Dragon\"}")).file(file())
                         .header("Authorization", "Bearer invalid"))
                 .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.status").value(401));
         verifyNoInteractions(service);
@@ -123,7 +123,7 @@ class ModelUploadControllerTest {
 
     @Test
     void up08_missingFile400WithEnvelope() throws Exception {
-        mvc.perform(multipart("/api/models/uploads").file(metadata("{\"modelName\":\"Dragon\"}"))
+        mvc.perform(multipart("/api/models/create").file(metadata("{\"modelName\":\"Dragon\"}"))
                         .header("Authorization", token))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
         verifyNoInteractions(service);
@@ -131,7 +131,7 @@ class ModelUploadControllerTest {
 
     @Test
     void missingMetadataIsAcceptedForFileOnlyUpload() throws Exception {
-        mvc.perform(multipart("/api/models/uploads").file(file()).header("Authorization", token))
+        mvc.perform(multipart("/api/models/create").file(file()).header("Authorization", token))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value(201));
         verify(service).uploadModel(eq(7), eq(new CreateModelRequest("model", null)), any());
     }
@@ -145,7 +145,7 @@ class ModelUploadControllerTest {
             case TOO_LARGE -> 413;
             default -> 500;
         };
-        var result = mvc.perform(multipart("/api/models/uploads").file(metadata("{\"modelName\":\"Dragon\"}"))
+        var result = mvc.perform(multipart("/api/models/create").file(metadata("{\"modelName\":\"Dragon\"}"))
                         .file(file()).header("Authorization", token))
                 .andExpect(status().is(statusCode)).andExpect(jsonPath("$.status").value(statusCode)).andReturn();
         assertFalse(result.getResponse().getContentAsString().contains("sensitive"));
@@ -166,7 +166,7 @@ class ModelUploadControllerTest {
     @Test
     void resolvedControllerMultipartLimitException413() throws Exception {
         when(service.uploadModel(any(), any(), any())).thenThrow(new MaxUploadSizeExceededException(50_000_000));
-        mvc.perform(multipart("/api/models/uploads").file(metadata("{\"modelName\":\"Dragon\"}"))
+        mvc.perform(multipart("/api/models/create").file(metadata("{\"modelName\":\"Dragon\"}"))
                         .file(file()).header("Authorization", token))
                 .andExpect(status().is(413)).andExpect(jsonPath("$.status").value(413));
     }
@@ -203,13 +203,13 @@ class ModelUploadControllerTest {
     }
 
     private void ignoredMetadata(String json) throws Exception {
-        mvc.perform(multipart("/api/models/uploads").file(metadata(json)).file(file()).header("Authorization", token))
+        mvc.perform(multipart("/api/models/create").file(metadata(json)).file(file()).header("Authorization", token))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value(201));
         verify(service, atLeastOnce()).uploadModel(eq(7), eq(new CreateModelRequest("model", null)), any());
     }
 
     private void expectServerFailure() throws Exception {
-        var result = mvc.perform(multipart("/api/models/uploads").file(metadata("{\"modelName\":\"Dragon\"}"))
+        var result = mvc.perform(multipart("/api/models/create").file(metadata("{\"modelName\":\"Dragon\"}"))
                         .file(file()).header("Authorization", token))
                 .andExpect(status().isInternalServerError()).andExpect(jsonPath("$.status").value(500)).andReturn();
         assertFalse(result.getResponse().getContentAsString().contains("secret"));

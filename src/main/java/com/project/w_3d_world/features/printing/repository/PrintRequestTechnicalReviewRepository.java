@@ -2,6 +2,7 @@ package com.project.w_3d_world.features.printing.repository;
 
 import com.project.w_3d_world.features.printing.entity.PrintRequestTechnicalReview;
 import java.util.List;
+import java.util.Collection;
 import org.springframework.data.repository.Repository;
 
 public interface PrintRequestTechnicalReviewRepository extends Repository<PrintRequestTechnicalReview, Integer> {
@@ -9,4 +10,7 @@ public interface PrintRequestTechnicalReviewRepository extends Repository<PrintR
 
     List<PrintRequestTechnicalReview> findByPrintRequestIdOrderByCreatedAtDescTechnicalReviewIdDesc(
             Integer printRequestId);
+
+    List<PrintRequestTechnicalReview> findByPrintRequestIdInOrderByCreatedAtDescTechnicalReviewIdDesc(
+            Collection<Integer> printRequestIds);
 }

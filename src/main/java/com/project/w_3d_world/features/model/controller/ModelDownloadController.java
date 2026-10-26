@@ -34,7 +34,7 @@ public class ModelDownloadController {
     private final ModelDownloadService downloadService;
 
     @GetMapping("/{modelId}/files/{fileId}/download")
-    @Operation(summary = "Download an authorized model file")
+    @Operation(summary = "Tải tệp mô hình 3D được phép truy cập")
     public void download(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable String modelId,
