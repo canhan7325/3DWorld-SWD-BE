@@ -5,6 +5,7 @@ import com.project.w_3d_world.common.util.JsonValues;
 import com.project.w_3d_world.features.order.service.OrderPaymentService;
 import com.project.w_3d_world.features.payment.dto.PaymentRequests.CreatePaymentRequest;
 import com.project.w_3d_world.features.payment.dto.PaymentResponses.PaymentResponse;
+import com.project.w_3d_world.features.payment.dto.PaymentResponses.PodPaymentStatusResponse;
 import com.project.w_3d_world.features.payment.entity.PaymentAttempt;
 import com.project.w_3d_world.features.payment.entity.PaymentTransaction;
 import com.project.w_3d_world.features.payment.repository.PaymentAttemptRepository;
@@ -25,9 +26,11 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +46,47 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentSourceResolver sourceResolver;
     private final UserRepository users;
     private final OrderPaymentService orderPayments;
+
+    @Override
+    @Transactional(readOnly = true)
+    public PodPaymentStatusResponse getPodStatus(int userId, int printRequestId) {
+        if (userId <= 0 || printRequestId <= 0) {
+            throw ApiException.invalidRequest("A positive Print Request ID is required.");
+        }
+        List<PaymentTransaction> matching = transactions
+                .findByPrintRequestIdAndPayerUserId(printRequestId, userId).stream()
+                .filter(transaction -> "POD".equals(transaction.getPurpose())
+                        && "PAYMENT".equals(transaction.getTransactionType())
+                        && "FULL".equals(transaction.getPaymentStage())
+                        && transaction.getPrintQuoteId() != null)
+                .toList();
+        if (matching.isEmpty()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "POD payment was not found.");
+        }
+        if (matching.size() != 1) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Multiple POD payment obligations require reconciliation.");
+        }
+
+        PaymentTransaction transaction = matching.getFirst();
+        PaymentAttempt attempt = attempts
+                .findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(
+                        transaction.getId(), "ZALOPAY")
+                .orElse(null);
+        boolean attemptReconciliationPending = attempt != null
+                && attempt.getReconciliationReason() != null
+                && !"SUCCESS".equals(attempt.getAttemptStatus())
+                && !"FAILED".equals(attempt.getAttemptStatus());
+        return new PodPaymentStatusResponse(
+                transaction.getId(), transaction.getPrintRequestId(),
+                transaction.getPrintQuoteId(), transaction.getStatus(),
+                transaction.getFulfillmentStatus(), transaction.getAmount(),
+                transaction.getCurrency(), attempt == null ? null : attempt.getId(),
+                attempt == null ? null : attempt.getAttemptStatus(),
+                attemptReconciliationPending, attempt == null ? null : attempt.getExpiresAt(),
+                transaction.getCreatedAt(), transaction.getUpdatedAt(),
+                transaction.getCompletedAt());
+    }
 
     @Override
     @Transactional

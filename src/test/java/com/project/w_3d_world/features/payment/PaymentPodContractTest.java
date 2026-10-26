@@ -13,7 +13,9 @@ import com.project.w_3d_world.features.payment.service.ZaloPayProperties;
 import com.project.w_3d_world.features.payment.service.impl.PaymentServiceImpl;
 import com.project.w_3d_world.features.user.entity.User;
 import com.project.w_3d_world.features.user.repository.UserRepository;
+import org.springframework.http.HttpStatus;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,6 +52,122 @@ class PaymentPodContractTest {
         payments = new PaymentServiceImpl(transactions, attempts, provider,
                 new ZaloPayProperties(1, "test-key", "test-key", "", "", "", ""),
                 sources, users, orders);
+    }
+
+    @Test
+    void ownerReadsPersistedPodPaymentAndLatestAttemptWithoutProviderEffects() {
+        PaymentTransaction transaction = podTransaction();
+        PaymentAttempt attempt = new PaymentAttempt(1, "attempt", "ZALOPAY");
+        attempt.initializeProvider(2, 1, 1L, Instant.parse("2026-10-26T12:00:00Z"));
+        ReflectionTestUtils.setField(attempt, "id", 22);
+        when(transactions.findByPrintRequestIdAndPayerUserId(10, 7))
+                .thenReturn(List.of(transaction));
+        when(attempts.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(1, "ZALOPAY"))
+                .thenReturn(Optional.of(attempt));
+
+        var status = payments.getPodStatus(7, 10);
+
+        assertEquals(1, status.transactionId());
+        assertEquals(10, status.printRequestId());
+        assertEquals(55, status.quoteId());
+        assertEquals("PENDING", status.financialStatus());
+        assertEquals("PENDING", status.fulfillmentStatus());
+        assertEquals(new BigDecimal("100.00"), status.amount());
+        assertEquals("VND", status.currency());
+        assertEquals(22, status.latestAttemptId());
+        assertEquals("REQUESTED", status.latestAttemptStatus());
+        assertEquals(Instant.parse("2026-10-26T12:00:00Z"), status.attemptExpiresAt());
+        assertNotNull(status.createdAt());
+        assertFalse(status.attemptReconciliationPending());
+        verifyNoInteractions(provider, sources, orders);
+        verify(transactions, never()).saveAndFlush(any());
+        verify(attempts, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void unknownProviderCreateRemainsFinanciallyPendingAndVisibleAsReconciliation() {
+        PaymentTransaction transaction = podTransaction();
+        PaymentAttempt attempt = new PaymentAttempt(1, "attempt", "ZALOPAY");
+        attempt.reconciliation("Provider create outcome is unknown; query before retrying.");
+        when(transactions.findByPrintRequestIdAndPayerUserId(10, 7))
+                .thenReturn(List.of(transaction));
+        when(attempts.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(1, "ZALOPAY"))
+                .thenReturn(Optional.of(attempt));
+
+        var status = payments.getPodStatus(7, 10);
+
+        assertEquals("PENDING", status.financialStatus());
+        assertEquals("REQUESTED", status.latestAttemptStatus());
+        assertTrue(status.attemptReconciliationPending());
+        verifyNoInteractions(provider, sources, orders);
+    }
+
+    @Test
+    void financialSuccessDoesNotClaimProductionFulfillment() {
+        PaymentTransaction transaction = podTransaction();
+        transaction.markSuccess();
+        transaction.fulfillment("RECONCILIATION_REQUIRED");
+        PaymentAttempt attempt = new PaymentAttempt(1, "attempt", "ZALOPAY");
+        attempt.success();
+        when(transactions.findByPrintRequestIdAndPayerUserId(10, 7))
+                .thenReturn(List.of(transaction));
+        when(attempts.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(1, "ZALOPAY"))
+                .thenReturn(Optional.of(attempt));
+
+        var status = payments.getPodStatus(7, 10);
+
+        assertEquals("SUCCESS", status.financialStatus());
+        assertEquals("SUCCESS", status.latestAttemptStatus());
+        assertEquals("RECONCILIATION_REQUIRED", status.fulfillmentStatus());
+        assertNotNull(status.completedAt());
+        verifyNoInteractions(provider, orders);
+    }
+
+    @Test
+    void definitiveFailureAndAbsentAttemptAreReportedWithoutInventedExpiry() {
+        PaymentTransaction transaction = podTransaction();
+        transaction.markFailed();
+        when(transactions.findByPrintRequestIdAndPayerUserId(10, 7))
+                .thenReturn(List.of(transaction));
+
+        var status = payments.getPodStatus(7, 10);
+
+        assertEquals("FAILED", status.financialStatus());
+        assertNull(status.latestAttemptStatus());
+        assertNull(status.attemptExpiresAt());
+        verifyNoInteractions(provider, orders);
+    }
+
+    @Test
+    void otherPayerAndWrongSourceAreNonDisclosingNotFound() {
+        PaymentTransaction wrongSource = new PaymentTransaction("PHYSICAL_ORDER", "key", 7,
+                "FULL", new BigDecimal("100.00"));
+        ReflectionTestUtils.setField(wrongSource, "id", 2);
+        when(transactions.findByPrintRequestIdAndPayerUserId(10, 8))
+                .thenReturn(List.of());
+        when(transactions.findByPrintRequestIdAndPayerUserId(10, 7))
+                .thenReturn(List.of(wrongSource));
+
+        assertEquals(HttpStatus.NOT_FOUND,
+                assertThrows(ApiException.class, () -> payments.getPodStatus(8, 10)).getStatus());
+        assertEquals(HttpStatus.NOT_FOUND,
+                assertThrows(ApiException.class, () -> payments.getPodStatus(7, 10)).getStatus());
+        verifyNoInteractions(attempts, provider, orders);
+    }
+
+    @Test
+    void invalidIdAndMultipleObligationsNeverChooseAnAmbiguousPayment() {
+        assertEquals(HttpStatus.BAD_REQUEST,
+                assertThrows(ApiException.class, () -> payments.getPodStatus(7, 0)).getStatus());
+        PaymentTransaction first = podTransaction();
+        PaymentTransaction second = podTransaction();
+        ReflectionTestUtils.setField(second, "id", 2);
+        when(transactions.findByPrintRequestIdAndPayerUserId(10, 7))
+                .thenReturn(List.of(first, second));
+
+        assertEquals(HttpStatus.CONFLICT,
+                assertThrows(ApiException.class, () -> payments.getPodStatus(7, 10)).getStatus());
+        verifyNoInteractions(attempts, provider, orders);
     }
 
     @Test
