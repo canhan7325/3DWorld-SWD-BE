@@ -1,5 +1,6 @@
 package com.project.w_3d_world.features.catalog.entity;
 
+import com.project.w_3d_world.common.exception.ApiException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -94,4 +95,64 @@ public class ProductVariant {
         stockQuantity -= quantity;
         reservedQuantity -= quantity;
     }
+
+    public ProductVariant(int productId, String sku, BigDecimal price, int stock) {
+        this.productId = productId;
+        this.sku = sku;
+        this.unitPrice = price;
+        this.stockQuantity = stock;
+    }
+
+    public void edit(String sku, String attributes, BigDecimal price, Boolean active,
+                     Boolean fragile, Integer threshold, String group, Integer weight,
+                     BigDecimal length, BigDecimal width, BigDecimal height) {
+        if (sku != null) {
+            this.sku = sku;
+        }
+        if (attributes != null) {
+            this.variantAttributes = attributes;
+        }
+        if (price != null) {
+            this.unitPrice = price;
+        }
+        if (active != null) {
+            this.active = active;
+            this.status = active ? "ACTIVE" : "INACTIVE";
+        }
+        if (fragile != null) {
+            this.fragile = fragile;
+        }
+        if (threshold != null) {
+            this.lowStockThreshold = threshold;
+        }
+        if (group != null) {
+            this.packingGroup = group;
+        }
+        if (weight != null) {
+            this.productWeightGrams = weight;
+        }
+        if (length != null) {
+            this.productLengthCm = length;
+        }
+        if (width != null) {
+            this.productWidthCm = width;
+        }
+        if (height != null) {
+            this.productHeightCm = height;
+        }
+    }
+
+    public void changeStock(int stock) {
+        if (stock < reservedQuantity) {
+            throw ApiException.invalidRequest(
+                    "Stock cannot be lower than reserved stock.");
+        }
+        stockQuantity = stock;
+    }
+
+    public void deactivate() {
+        active = false;
+        status = "INACTIVE";
+    }
+
 }

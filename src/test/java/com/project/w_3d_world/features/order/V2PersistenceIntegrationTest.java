@@ -7,12 +7,15 @@ import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
 import com.project.w_3d_world.features.cart.dto.CartRequests.ItemRequest;
 import com.project.w_3d_world.features.cart.service.CartService;
 import com.project.w_3d_world.features.cart.service.impl.CartServiceImpl;
+import com.project.w_3d_world.features.catalog.repository.CatalogReadRepository;
 import com.project.w_3d_world.features.order.dto.OrderRequests.CheckoutRequest;
 import com.project.w_3d_world.features.order.service.OrderPaymentService;
 import com.project.w_3d_world.features.order.service.OrderService;
 import com.project.w_3d_world.features.order.service.impl.OrderServiceImpl;
 import com.project.w_3d_world.features.payment.entity.PaymentTransaction;
 import com.project.w_3d_world.features.payment.repository.PaymentTransactionRepository;
+import com.project.w_3d_world.features.storefront.service.StorefrontService;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
@@ -27,6 +30,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 @EnabledIfSystemProperty(named = "v2.pg.integration", matches = "true")
@@ -45,8 +49,15 @@ class V2PersistenceIntegrationTest {
     @EntityScan("com.project.w_3d_world.features")
     @EnableJpaRepositories("com.project.w_3d_world.features")
     @Import({CartServiceImpl.class, OrderServiceImpl.class, OrderPaymentService.class,
-            com.project.w_3d_world.features.catalog.service.impl.CatalogServiceImpl.class})
+            com.project.w_3d_world.features.catalog.service.impl.CatalogServiceImpl.class,
+            CatalogReadRepository.class})
     static class Config {}
+
+    @MockitoBean
+    StorefrontService storefrontService;
+
+    @MockitoBean
+    com.project.w_3d_world.features.shipping.service.ShippingQuoteService shippingQuotes;
 
     @Autowired JdbcTemplate jdbc;
     @Autowired CartService carts;
@@ -64,6 +75,8 @@ class V2PersistenceIntegrationTest {
         String key = UUID.randomUUID().toString();
         buyer = user("buyer-" + key);
         int seller = user("seller-" + key);
+        jdbc.update("UPDATE users SET email_verified=true,phone_verified=true WHERE user_id=?", seller);
+        jdbc.update("INSERT INTO user_roles(user_id,role_id,approval_status) SELECT ?,role_id,'ACTIVE' FROM roles WHERE role_code='SELLER'", seller);
         address = jdbc.queryForObject("""
                 INSERT INTO user_addresses(user_id, recipient_name, address_line, city)
                 VALUES (?, 'Buyer', 'Original address', 'City') RETURNING address_id
@@ -130,7 +143,7 @@ class V2PersistenceIntegrationTest {
         assertEquals(0, reserved());
     }
 
-    @Autowired jakarta.persistence.EntityManager entityManager;
+    @Autowired EntityManager entityManager;
 
     @Test
     void verifiedPaymentUpdatesOrderAndProcessingConsumesReservation() {

@@ -2,6 +2,7 @@ package com.project.w_3d_world.features.auth.dto.response;
 
 import com.project.w_3d_world.features.auth.entity.UserRole;
 import com.project.w_3d_world.features.auth.enums.Capability;
+import com.project.w_3d_world.features.auth.enums.RoleCode;
 import com.project.w_3d_world.features.user.entity.User;
 import java.time.LocalDate;
 import java.util.Set;
@@ -21,6 +22,8 @@ public record UserResponse(
         Set<String> roles = new TreeSet<>();
         user.getUserRoles().stream()
                 .filter(UserRole::isActive)
+                .filter(grant -> user.isEmailVerified() || grant.getRole().getCode()
+                        == RoleCode.CUSTOMER)
                 .map(grant -> grant.getRole().getCode().name())
                 .forEach(roles::add);
 

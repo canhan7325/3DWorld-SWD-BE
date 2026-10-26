@@ -2,14 +2,11 @@ package com.project.w_3d_world.features.auth.entity;
 
 import com.project.w_3d_world.features.auth.enums.ApprovalStatus;
 import com.project.w_3d_world.features.user.entity.User;
-
 import jakarta.persistence.*;
-
+import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-
-import java.time.Instant;
 
 @Entity
 @Table(name = "user_roles")
@@ -49,5 +46,10 @@ public class UserRole {
 
     public boolean isActive() {
         return approvalStatus == ApprovalStatus.ACTIVE;
+    }
+    public void changeApproval(boolean active, int actorId) {
+        approvalStatus = active ? ApprovalStatus.ACTIVE : ApprovalStatus.REVOKED;
+        grantedByUserId = actorId;
+        grantedAt = Instant.now();
     }
 }

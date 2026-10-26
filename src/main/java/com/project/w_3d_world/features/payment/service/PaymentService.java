@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 
 public interface PaymentService {
     PaymentResponse create(int userId, CreatePaymentRequest request);
+    PaymentResponse status(int userId, int transactionId);
     PodPaymentStatusResponse getPodStatus(int userId, int printRequestId);
     void callback(String data, String mac);
 

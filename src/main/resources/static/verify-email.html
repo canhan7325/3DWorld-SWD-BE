@@ -1,10 +1,11 @@
+
 <!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="referrer" content="no-referrer">
-    <title>Xác minh email · 3DWorld</title>
+    <title>Verify email · 3DWorld</title>
     <style>
         * { box-sizing: border-box; }
         body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; font: 16px/1.6 system-ui, sans-serif; background: #f3f6fb; color: #182230; }
@@ -15,15 +16,25 @@
         button { width: 100%; padding: 12px; border: 0; border-radius: 8px; background: #2563eb; color: white; font: inherit; cursor: pointer; }
         button:disabled { opacity: .6; cursor: default; }
         #result { min-height: 28px; margin-bottom: 0; }
+        form { margin-top: 24px; padding-top: 20px; border-top: 1px solid #e2e8f0; }
+        label { display: block; margin-bottom: 8px; }
+        input { width: 100%; padding: 10px; margin-bottom: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
+        #resend { background: #475569; }
     </style>
 </head>
 <body>
 <main>
     <span class="brand">3DWorld</span>
-    <h1>Xác minh email</h1>
-    <p>Bấm nút bên dưới để xác minh địa chỉ <strong id="email"></strong>.</p>
-    <button id="confirm" type="button">Xác minh email</button>
+    <h1>Verify email</h1>
+    <p>Click below to verify the email address <strong id="email"></strong>.</p>
+    <button id="confirm" type="button">Verify email</button>
     <p id="result" role="status" aria-live="polite"></p>
+    <form id="resend-form">
+        <label for="resend-email">Need a new verification link?</label>
+        <input id="resend-email" type="email" autocomplete="email" placeholder="Your email address" required>
+        <button id="resend" type="submit">Resend verification email</button>
+        <p>Use the newest email. Requesting another link replaces earlier links.</p>
+    </form>
 </main>
 <script>
     const params = new URLSearchParams(location.search);
@@ -32,14 +43,18 @@
     history.replaceState(null, '', location.pathname);
     const button = document.getElementById('confirm');
     const result = document.getElementById('result');
+    const resendForm = document.getElementById('resend-form');
+    const resendButton = document.getElementById('resend');
+    const resendEmail = document.getElementById('resend-email');
+    resendEmail.value = email || '';
     document.getElementById('email').textContent = email || '';
     if (!email || !token) {
         button.disabled = true;
-        result.textContent = 'Liên kết không hợp lệ. Vui lòng mở link trong email.';
+        result.textContent = 'Invalid link. Please open the link from your email.';
     }
     button.addEventListener('click', async () => {
         button.disabled = true;
-        result.textContent = 'Đang xác minh…';
+        result.textContent = 'Verifying…';
         try {
             const response = await fetch('/api/auth/verify-email', {
                 method: 'POST',
@@ -48,11 +63,58 @@
             });
             const body = await response.json();
             result.textContent = body.message;
-            if (response.ok) button.textContent = 'Đã xác minh';
-            else button.disabled = false;
+            if (response.ok) {
+                button.textContent = 'Verified';
+                resendForm.hidden = true;
+                const loginUrl = new URL('http://localhost:5173/login');
+                loginUrl.searchParams.set('verified', 'true');
+                loginUrl.searchParams.set('email', email);
+                window.location.assign(loginUrl.toString());
+            } else {
+                button.disabled = false;
+            }
         } catch {
-            result.textContent = 'Không thể kết nối tới máy chủ. Vui lòng thử lại.';
+            result.textContent = 'Unable to connect to the server. Please try again.';
             button.disabled = false;
+        }
+    });
+    resendForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (resendButton.disabled) return;
+        resendButton.disabled = true;
+        result.textContent = 'Requesting another verification email…';
+        try {
+            const response = await fetch('/api/auth/resend-verification', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: resendEmail.value.trim() })
+            });
+            const body = await response.json();
+            result.textContent = body.message || 'Unable to request a verification email.';
+            if (!response.ok) {
+                resendButton.disabled = false;
+                return;
+            }
+            const wait = response.headers.get('Retry-After');
+            let remaining = wait === null ? 60 : Math.max(0, Number(wait) || 0);
+            if (remaining === 0) {
+                resendButton.disabled = false;
+                return;
+            }
+            resendButton.textContent = `Resend in ${remaining}s`;
+            const timer = setInterval(() => {
+                remaining -= 1;
+                if (remaining <= 0) {
+                    clearInterval(timer);
+                    resendButton.disabled = false;
+                    resendButton.textContent = 'Resend verification email';
+                } else {
+                    resendButton.textContent = `Resend in ${remaining}s`;
+                }
+            }, 1000);
+        } catch {
+            result.textContent = 'Unable to connect to the server. Please try again.';
+            resendButton.disabled = false;
         }
     });
 </script>

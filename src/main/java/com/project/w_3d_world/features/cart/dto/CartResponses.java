@@ -9,7 +9,11 @@ public final class CartResponses {
     public record CartItemResponse(Integer itemId, Integer variantId, String productTitle,
                                    String sku, BigDecimal unitPrice, int quantity,
                                    BigDecimal lineTotal, boolean unavailable,
-                                   BigDecimal previousUnitPrice, boolean priceChanged) {}
+                                   BigDecimal previousUnitPrice, boolean priceChanged, Integer productId,
+                                   Integer storefrontId, String thumbnailUrl) {}
 
-    public record CartResponse(Integer cartId, List<CartItemResponse> items, BigDecimal total) {}
+    public record ShopGroup(Integer storefrontId, List<CartItemResponse> items, BigDecimal subtotal) {}
+
+    public record CartResponse(Integer cartId, List<CartItemResponse> items, BigDecimal total,
+                               List<ShopGroup> groups) {}
 }

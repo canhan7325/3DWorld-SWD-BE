@@ -42,16 +42,28 @@ public class PaymentController {
         return ApiResponse.success(paymentService.create(user.userId(), request));
     }
 
-    @GetMapping("/print-requests/{printRequestId}")
-    @PreAuthorize("isAuthenticated()")
-    @SecurityRequirement(name = "bearerAuth")
-    @Operation(summary = "Read the authenticated payer's POD payment status")
-    public ApiResponse<PodPaymentStatusResponse> getPodStatus(
-            @AuthenticationPrincipal AuthenticatedUser user,
-            @PathVariable int printRequestId) {
-        return ApiResponse.success(paymentService.getPodStatus(user.userId(), printRequestId));
-    }
+@GetMapping("/{transactionId}/status")
+@PreAuthorize("isAuthenticated()")
+@SecurityRequirement(name = "bearerAuth")
+@Operation(
+        summary = "Query verified payment status",
+        description = "Queries ZaloPay and applies a verified payment result.")
+public ApiResponse<PaymentResponse> status(
+        @AuthenticationPrincipal AuthenticatedUser user,
+        @PathVariable int transactionId) {
+    return ApiResponse.success(paymentService.status(user.userId(), transactionId));
+}
 
+@GetMapping("/print-requests/{printRequestId}")
+@PreAuthorize("isAuthenticated()")
+@SecurityRequirement(name = "bearerAuth")
+@Operation(summary = "Read the authenticated payer's POD payment status")
+public ApiResponse<PodPaymentStatusResponse> getPodStatus(
+        @AuthenticationPrincipal AuthenticatedUser user,
+        @PathVariable int printRequestId) {
+    return ApiResponse.success(paymentService.getPodStatus(user.userId(), printRequestId));
+}
+  
     @PostMapping("/{transactionId}/refund")
     @PreAuthorize("isAuthenticated()")
     @SecurityRequirement(name = "bearerAuth")

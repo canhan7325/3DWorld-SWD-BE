@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -45,11 +46,13 @@ public class SecurityConfig {
     private static CorsConfigurationSource corsConfigurationSource(
             List<String> origins, boolean development) {
         CorsConfiguration configuration = new CorsConfiguration();
-        if (development) configuration.setAllowedOriginPatterns(List.of("*"));
+        if (development) {
+            configuration.setAllowedOriginPatterns(List.of("*"));
+        }
         else configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
-        configuration.setExposedHeaders(List.of("Content-Disposition"));
+        configuration.setExposedHeaders(List.of("Content-Disposition", "Retry-After"));
         configuration.setAllowCredentials(false);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
@@ -101,8 +104,11 @@ public class SecurityConfig {
                                                                     "Permission denied."));
                                                 }))
                 .authorizeHttpRequests(
-                        requests ->
-                                requests.requestMatchers(
+                        requests -> requests
+                                .requestMatchers(HttpMethod.GET,
+                                        "/api/storefronts/{storefrontId:[0-9]+}",
+                                        "/api/storefronts/{storefrontId:[0-9]+}/products").permitAll()
+                                .requestMatchers(
                                                 "/api/catalog", "/api/catalog/**",
                                                 "/api/auth/register",
                                                 "/api/auth/login",

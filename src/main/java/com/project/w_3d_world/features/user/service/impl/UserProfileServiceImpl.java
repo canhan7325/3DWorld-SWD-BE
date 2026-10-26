@@ -3,8 +3,10 @@ package com.project.w_3d_world.features.user.service.impl;
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.audit.entity.AuditLog;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
+import com.project.w_3d_world.features.auth.service.SellerVerificationService;
 import com.project.w_3d_world.features.auth.dto.response.UserResponse;
 import com.project.w_3d_world.features.auth.service.CapabilityService;
+import com.project.w_3d_world.features.auth.service.impl.AccountValidation;
 import com.project.w_3d_world.features.user.dto.ProfileRequests.AddressRequest;
 import com.project.w_3d_world.features.user.dto.ProfileRequests.BankRequest;
 import com.project.w_3d_world.features.user.dto.ProfileRequests.UpdateProfileRequest;
@@ -16,6 +18,7 @@ import com.project.w_3d_world.features.user.entity.UserBankAccount;
 import com.project.w_3d_world.features.user.repository.UserAddressRepository;
 import com.project.w_3d_world.features.user.repository.UserBankAccountRepository;
 import com.project.w_3d_world.features.user.repository.UserRepository;
+import com.project.w_3d_world.features.user.service.BankVerificationService;
 import com.project.w_3d_world.features.user.service.UserProfileService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -34,24 +37,35 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final UserBankAccountRepository banks;
     private final CapabilityService capabilities;
     private final AuditLogRepository auditLogs;
+    private final SellerVerificationService sellerVerification;
 
     private User user(int id) {
-        return users.lockById(id)
+        return users.lockById(id).filter(User::isActive)
                 .orElseThrow(() -> ApiException.invalidRequest("User does not exist."));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserResponse profile(int id) {
+        User user = users.findWithRolesById(id).filter(User::isActive).orElseThrow(ApiException::invalidCredentials);
+        return UserResponse.from(user, capabilities.getCapabilities(user));
     }
 
     @Override
     @Transactional
     public UserResponse updateProfile(int id, UpdateProfileRequest request) {
-        User user = users.lockById(id).orElseThrow(ApiException::invalidCredentials);
-        if (!Objects.equals(user.getPhone(), request.phone())) {
+        AccountValidation.required(request.fullName(), 255, "Full name");
+        String normalizedPhone = AccountValidation.phone(request.phone());
+        User user = users.lockById(id).filter(User::isActive).orElseThrow(ApiException::invalidCredentials);
+        if (!Objects.equals(user.getPhone(), normalizedPhone)) {
             for (UserBankAccount account : banks.findByUserIdAndActiveTrueOrderByIdAsc(id)) {
                 account.invalidateVerification();
             }
+            sellerVerification.invalidate(user, "Phone changed");
             auditLogs.save(new AuditLog(id, "PHONE_CHANGED", "USER", id,
                     "Phone and bank verification invalidated", null));
         }
-        user.updateProfile(request.fullName().trim(), request.phone());
+        user.updateProfile(request.fullName().trim(), normalizedPhone);
         user.updateDateOfBirth(request.dateOfBirth());
         return UserResponse.from(user, capabilities.getCapabilities(user));
     }
@@ -69,6 +83,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Transactional
     public AddressResponse addAddress(int id, AddressRequest request) {
         user(id);
+        validateAddress(request);
         UserAddress address = new UserAddress(
                 id,
                 request.recipientName().trim(),
@@ -87,6 +102,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Transactional
     public AddressResponse updateAddress(int id, int addressId, AddressRequest request) {
         user(id);
+        validateAddress(request);
         UserAddress address = ownedAddress(id, addressId);
         address.update(
                 request.recipientName().trim(),
@@ -135,6 +151,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Transactional
     public BankResponse addBank(int id, BankRequest request) {
         user(id);
+        validateBank(request);
         UserBankAccount bank = newBank(id, request);
         banks.save(bank);
         if (banks.findByUserIdAndActiveTrueOrderByIdAsc(id).size() == 1) {
@@ -148,6 +165,8 @@ public class UserProfileServiceImpl implements UserProfileService {
     public BankResponse updateBank(int id, int bankId, BankRequest request) {
         user(id);
         UserBankAccount bank = ownedBank(id, bankId);
+        validateBank(request);
+        sellerVerification.invalidate(user(id), "Bank account changed");
         bank.update(
                 request.bankCode().trim(),
                 request.bankName().trim(),
@@ -166,7 +185,9 @@ public class UserProfileServiceImpl implements UserProfileService {
         user(id);
         UserBankAccount bank = ownedBank(id, bankId);
         boolean wasDefault = bank.isDefaultAccount();
+        sellerVerification.invalidate(user(id), "Bank account deactivated");
         bank.deactivate();
+        banks.flush();
         if (wasDefault) {
             banks.findByUserIdAndActiveTrueOrderByIdAsc(id).stream()
                     .findFirst()
@@ -188,24 +209,14 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     @Transactional
     public BankResponse reviewBank(int reviewerId, int bankId, boolean approved, String reason) {
-        UserBankAccount bank = banks.findById(bankId)
-                .orElseThrow(() -> ApiException.invalidRequest("Bank account does not exist."));
-        bank.review(approved);
-        auditLogs.save(new AuditLog(
-                reviewerId,
-                approved ? "BANK_ACCOUNT_VERIFIED" : "BANK_ACCOUNT_REJECTED",
-                "USER_BANK_ACCOUNT",
-                bankId,
-                reason,
-                "verification_status=" + bank.getVerificationStatus()));
-        return BankResponse.from(bank);
+        throw ApiException.invalidRequest("Use bank verification with evidenceReference and accountFingerprint.");
     }
 
     private UserAddress ownedAddress(int userId, int addressId) {
         UserAddress address = addresses.findById(addressId)
                 .orElseThrow(() -> ApiException.invalidRequest("Address does not exist."));
         if (!address.getUserId().equals(userId)) {
-            throw ApiException.invalidRequest("You do not have permission to access this address.");
+            throw new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "Address does not exist.");
         }
         return address;
     }
@@ -214,7 +225,7 @@ public class UserProfileServiceImpl implements UserProfileService {
         UserBankAccount bank = banks.findById(bankId)
                 .orElseThrow(() -> ApiException.invalidRequest("Bank account does not exist."));
         if (!bank.getUserId().equals(userId) || !bank.isActive()) {
-            throw ApiException.invalidRequest("You do not have permission to access this resource.");
+            throw new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "Bank account does not exist.");
         }
         return bank;
     }
@@ -242,5 +253,23 @@ public class UserProfileServiceImpl implements UserProfileService {
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot hash bank account number", exception);
         }
+    }
+    private void validateAddress(AddressRequest request) {
+        AccountValidation.required(request.recipientName(), 255, "Recipient name");
+        AccountValidation.required(request.addressLine(), 2000, "Address line");
+        AccountValidation.phone(request.phone());
+        for (String value : java.util.Arrays.asList(
+                request.city(), request.province(), request.district(), request.ward())) {
+            if (value != null && value.length() > 255) {
+                throw ApiException.invalidRequest("Address region is too long.");
+            }
+        }
+    }
+
+    private void validateBank(BankRequest request) {
+        AccountValidation.required(request.bankCode(), 30, "Bank code");
+        AccountValidation.required(request.bankName(), 255, "Bank name");
+        AccountValidation.required(request.accountHolder(), 255, "Account holder");
+        AccountValidation.bankNumber(request.accountNumber());
     }
 }

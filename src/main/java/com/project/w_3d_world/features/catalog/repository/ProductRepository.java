@@ -1,15 +1,25 @@
 package com.project.w_3d_world.features.catalog.repository;
 
+import com.project.w_3d_world.features.auth.enums.RoleCode;
 import com.project.w_3d_world.features.catalog.entity.Product;
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ProductRepository extends JpaRepository<Product, Integer> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Product p where p.id = :id")
+    Optional<Product> lockById(@Param("id") int id);
+
+    Page<Product> findByStorefrontId(Integer storefrontId, Pageable pageable);
+    Page<Product> findByStatus(String status, Pageable pageable);
+
     List<Product> findByStorefrontId(Integer storefrontId);
 
     @Query("""
@@ -19,7 +29,13 @@ public interface ProductRepository extends JpaRepository<Product, Integer> {
                           and s.status = com.project.w_3d_world.features.storefront.enums.StorefrontStatus.ACTIVE
                           and s.verificationStatus =
                               com.project.w_3d_world.features.storefront.enums.VerificationStatus.VERIFIED
-                          and s.expiresAt > CURRENT_TIMESTAMP)
+                          and s.expiresAt > CURRENT_TIMESTAMP
+                          and s.owner.accountStatus =
+                              com.project.w_3d_world.features.user.enums.AccountStatus.ACTIVE
+                          and s.owner.emailVerified=true and s.owner.phoneVerified=true
+                          and exists (select ur.id from UserRole ur where ur.user.id=s.ownerUserId
+                                      and ur.approvalStatus = com.project.w_3d_world.features.auth.enums.ApprovalStatus.ACTIVE
+                                      and ur.role.code = RoleCode.SELLER))
               and (cast(:keyword as string) is null
                    or lower(p.title) like lower(concat('%', cast(:keyword as string), '%')))
               and (cast(:category as string) is null

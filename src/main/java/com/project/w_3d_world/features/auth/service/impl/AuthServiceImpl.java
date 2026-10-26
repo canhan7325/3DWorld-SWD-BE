@@ -1,7 +1,7 @@
 package com.project.w_3d_world.features.auth.service.impl;
 
-import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.common.config.AuthenticatedUser;
+import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.common.service.JwtService;
 import com.project.w_3d_world.features.auth.dto.request.LoginRequest;
 import com.project.w_3d_world.features.auth.dto.request.RegisterRequest;
@@ -17,15 +17,12 @@ import com.project.w_3d_world.features.auth.service.CapabilityService;
 import com.project.w_3d_world.features.auth.service.EmailTokenService;
 import com.project.w_3d_world.features.user.entity.User;
 import com.project.w_3d_world.features.user.repository.UserRepository;
-
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
-
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -42,7 +39,10 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public UserResponse register(RegisterRequest request) {
-        String email = normalizeEmail(request.email());
+        String email = AccountValidation.email(request.email());
+        AccountValidation.password(request.password());
+        AccountValidation.required(request.fullName(), 255, "Full name");
+        AccountValidation.phone(request.phone());
         if (userRepository.findByNormalizedEmail(email).isPresent()) {
             throw ApiException.emailAlreadyExists();
         }
@@ -62,7 +62,7 @@ public class AuthServiceImpl implements AuthService {
                         email,
                         passwordEncoder.encode(request.password()),
                         request.fullName().trim(),
-                        request.phone());
+                        AccountValidation.phone(request.phone()));
         userRepository.saveAndFlush(user);
 
         UserRole userRole = new UserRole(user, customerRole);
@@ -90,7 +90,7 @@ public class AuthServiceImpl implements AuthService {
         UserResponse response = buildUserResponse(user);
         var token =
                 jwtService.generateToken(
-                        response.userId(), response.roles(), response.phone(), response.email());
+                        response.userId(), response.roles(), response.phone(), response.email(), user.getAuthVersion());
         sessionService.createSession(user, token);
         return new LoginResponse(token.getTokenValue(), "Bearer", token.getExpiresAt(), response);
     }

@@ -139,14 +139,20 @@ public class PhysicalOrder {
     }
 
     public void transition(String nextStatus) {
-        if (!allowed(nextStatus)) throw new IllegalArgumentException("Invalid order status transition.");
+        if (!allowed(nextStatus)) {
+            throw new IllegalArgumentException("Invalid order status transition.");
+        }
         status = nextStatus;
         updatedAt = Instant.now();
         if ("CANCELLED".equals(nextStatus)) {
             cancelledAt = Instant.now();
         }
-        if ("DELIVERED".equals(nextStatus)) deliveredAt = Instant.now();
-        if ("RECEIVED".equals(nextStatus)) receivedAt = Instant.now();
+        if ("DELIVERED".equals(nextStatus)) {
+            deliveredAt = Instant.now();
+        }
+        if ("RECEIVED".equals(nextStatus)) {
+            receivedAt = Instant.now();
+        }
     }
 
     private boolean allowed(String next) {
@@ -190,5 +196,33 @@ public class PhysicalOrder {
     public void released() {
         reservationStatus = "RELEASED";
         stockReleasedAt = Instant.now();
+    }
+
+    public void cancel(String reason) {
+        cancellationReason = reason;
+        transition("CANCELLED");
+    }
+
+    public void confirmReceived() {
+        transition("RECEIVED");
+        refundDeadlineAt = receivedAt.plusSeconds((refundWindowHoursSnapshot == null ? 72 : refundWindowHoursSnapshot) * 3600L);
+    }
+
+    public void deliveredPolicy() {
+        autoConfirmDueAt = deliveredAt.plusSeconds((autoConfirmHoursSnapshot == null ? 24 : autoConfirmHoursSnapshot) * 3600L);
+    }
+
+    public void snapshotPackages(int count, BigDecimal cost, int productsWeight, int packagingWeight, int weight) {
+        shippingCalculationVersion = "MANUAL_STACK_V1";
+        shippingPackageCount = count;
+        shippingPackagingCostVnd = cost;
+        shippingProductWeightGrams = productsWeight;
+        shippingPackagingWeightGrams = packagingWeight;
+        shippingWeightGrams = weight;
+        shippingQuotedAt = Instant.now();
+        updatedAt = Instant.now();
+    }
+    public void markShippingQuoteVersion(String version) {
+        shippingCalculationVersion = version;
     }
 }

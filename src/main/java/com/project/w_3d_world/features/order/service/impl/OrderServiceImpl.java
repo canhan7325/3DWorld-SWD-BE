@@ -2,6 +2,7 @@ package com.project.w_3d_world.features.order.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.common.util.JsonValues;
+import com.project.w_3d_world.features.auth.enums.RoleCode;
 import com.project.w_3d_world.features.cart.entity.CartItem;
 import com.project.w_3d_world.features.cart.repository.CartItemRepository;
 import com.project.w_3d_world.features.cart.repository.CartRepository;
@@ -10,6 +11,7 @@ import com.project.w_3d_world.features.catalog.entity.ProductVariant;
 import com.project.w_3d_world.features.catalog.repository.ProductRepository;
 import com.project.w_3d_world.features.catalog.repository.ProductVariantRepository;
 import com.project.w_3d_world.features.order.dto.OrderRequests.CheckoutRequest;
+import com.project.w_3d_world.features.order.dto.OrderRequests.HistoryResponse;
 import com.project.w_3d_world.features.order.dto.OrderResponses.OrderItemResponse;
 import com.project.w_3d_world.features.order.dto.OrderResponses.OrderResponse;
 import com.project.w_3d_world.features.order.entity.OrderStatusHistory;
@@ -20,6 +22,8 @@ import com.project.w_3d_world.features.order.repository.PhysicalOrderItemReposit
 import com.project.w_3d_world.features.order.repository.PhysicalOrderRepository;
 import com.project.w_3d_world.features.order.service.OrderService;
 import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
+import com.project.w_3d_world.features.shipping.service.ShippingQuoteService;
+import com.project.w_3d_world.features.shipping.dto.ShippingQuoteDtos.ShopQuote;
 import com.project.w_3d_world.features.user.repository.UserAddressRepository;
 import com.project.w_3d_world.features.user.repository.UserRepository;
 import java.math.BigDecimal;
@@ -29,6 +33,7 @@ import java.time.Instant;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,6 +50,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderStatusHistoryRepository history;
     private final UserRepository users;
     private final UserAddressRepository addresses;
+    private final ShippingQuoteService shippingQuotes;
 
     @Value("${app.order.reservation-ttl-minutes:15}")
     private long reservationTtlMinutes;
@@ -98,12 +104,15 @@ public class OrderServiceImpl implements OrderService {
         selected.stream().map(CartItem::getVariantId).distinct().sorted().forEach(id ->
                 locked.put(id, variants.findByIdForUpdate(id)
                         .orElseThrow(() -> ApiException.invalidRequest("Variant does not exist."))));
+        var quotedShops = shippingQuotes.enabled()
+                ? shippingQuotes.validate(userId, request.cartItemIds(), request.shippingAddressId(), request.shippingQuoteToken())
+                : Map.<Integer, ShopQuote>of();
         Map<Integer, List<CartItem>> groups = new TreeMap<>();
         for (CartItem item : selected) {
             ProductVariant variant = locked.get(item.getVariantId());
             Product product = products.findById(variant.getProductId()).orElseThrow();
             var storefront = storefronts.findById(product.getStorefrontId()).orElseThrow();
-            if (!"PUBLISHED".equals(product.getStatus()) || !variant.isActive()
+            if (!"PUBLISHED".equals(product.getStatus()) || !variant.isActive() || !"ACTIVE".equals(variant.getStatus())
                     || !storefront.canPublish() || storefront.getOwnerUserId().equals(userId)) {
                 throw ApiException.invalidRequest("A selected product is unavailable for this buyer.");
             }
@@ -129,20 +138,26 @@ public class OrderServiceImpl implements OrderService {
                             .multiply(BigDecimal.valueOf(item.getQuantity())))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             PhysicalOrder order = new PhysicalOrder(userId, entry.getKey(), addressJson,
-                    checkoutGroup, subtotal, shippingFee);
+                    checkoutGroup, subtotal, quotedShops.containsKey(entry.getKey())
+                            ? quotedShops.get(entry.getKey()).selected().shippingFee() : shippingFee);
             order.setShippingAddressId(address.getId());
             order.initializeCheckout(request.idempotencyKey(), fingerprint, expiry,
                     commissionRate, refundHours, autoConfirmHours);
             orders.saveAndFlush(order);
             order.transition("PENDING_PAYMENT");
             history.save(new OrderStatusHistory(order.getId(), null, "PENDING_PAYMENT", userId, "Checkout"));
+            Map<Integer, PhysicalOrderItem> checkoutItems = new TreeMap<>();
             for (CartItem item : entry.getValue()) {
                 ProductVariant variant = locked.get(item.getVariantId());
                 PhysicalOrderItem orderItem = new PhysicalOrderItem(order.getId(), variant.getId(),
                         variant.getSku(), variant.getVariantAttributes(), item.getQuantity(), variant.getUnitPrice());
                 orderItem.snapshotProductTitle(products.findById(variant.getProductId()).orElseThrow().getTitle());
-                orderItems.save(orderItem);
+                orderItems.saveAndFlush(orderItem);
+                checkoutItems.put(item.getId(), orderItem);
                 cartItems.delete(item);
+            }
+            if (quotedShops.containsKey(entry.getKey())) {
+                shippingQuotes.persist(order, quotedShops.get(entry.getKey()), checkoutItems);
             }
             result.add(response(order));
         }
@@ -169,9 +184,17 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponse updateStatus(int sellerId, int orderId, String status) {
         PhysicalOrder order = orders.lockById(orderId)
                 .orElseThrow(() -> ApiException.invalidRequest("Order does not exist."));
-        storefronts.findByOwnerUserId(sellerId)
-                .filter(store -> store.getId().equals(order.getStorefrontId()))
-                .orElseThrow(() -> ApiException.invalidRequest("You do not own this storefront."));
+        boolean owner = storefronts.findByOwnerUserId(sellerId)
+                .filter(store -> store.getId().equals(order.getStorefrontId())).isPresent();
+        boolean operator = users.findWithRolesById(sellerId).filter(user -> user.isActive() && user.isEmailVerified())
+                .map(user -> user.getUserRoles().stream().anyMatch(grant -> grant.isActive()
+                        && (grant.getRole().getCode() == RoleCode.ADMIN
+                            || grant.getRole().getCode() == RoleCode.PRINT_STAFF)))
+                .orElse(false);
+        if (!owner && !operator) {
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN, "You cannot process this order.");
+        }
         if (order.getStatus().equals(status)) {
             return response(order);
         }
@@ -211,6 +234,76 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public OrderResponse detail(int userId, int orderId) {
+        return response(readable(userId, orderId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<HistoryResponse> history(int userId, int orderId) {
+        readable(userId, orderId);
+        return history.findByOrderIdOrderByChangedAtAscIdAsc(orderId).stream()
+                .map(HistoryResponse::from).toList();
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse cancel(int userId, int orderId, String reason) {
+        PhysicalOrder order = orders.lockById(orderId).filter(value -> value.getBuyerUserId().equals(userId))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Order does not exist."));
+        if ("CANCELLED".equals(order.getStatus())) {
+            return response(order);
+        }
+        if (!Set.of("CREATED", "PENDING_PAYMENT").contains(order.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Only an unpaid order can be cancelled directly. Paid orders require the refund workflow.");
+        }
+        String from = order.getStatus();
+        if (order.hasReservation()) {
+            for (PhysicalOrderItem item : sortedItems(orderId)) {
+                variants.findByIdForUpdate(item.getVariantId()).orElseThrow().release(item.getQuantity());
+            }
+            order.released();
+        }
+        order.cancel(reason);
+        history.save(new OrderStatusHistory(orderId, from, "CANCELLED", userId, reason));
+        return response(order);
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse confirmReceived(int userId, int orderId) {
+        PhysicalOrder order = orders.lockById(orderId).filter(value -> value.getBuyerUserId().equals(userId))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Order does not exist."));
+        if ("RECEIVED".equals(order.getStatus())) {
+            return response(order);
+        }
+        if (!"DELIVERED".equals(order.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "Only a delivered order can be confirmed.");
+        }
+        order.confirmReceived();
+        history.save(new OrderStatusHistory(orderId, "DELIVERED", "RECEIVED", userId, "Buyer confirmed receipt"));
+        return response(order);
+    }
+
+    private PhysicalOrder readable(int userId, int orderId) {
+        PhysicalOrder order = orders.findById(orderId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Order does not exist."));
+        boolean buyer = order.getBuyerUserId().equals(userId);
+        boolean seller = storefronts.findByOwnerUserId(userId)
+                .filter(store -> store.getId().equals(order.getStorefrontId())).isPresent();
+        boolean operator = users.findWithRolesById(userId).filter(user -> user.isActive() && user.isEmailVerified())
+                .map(user -> user.getUserRoles().stream().anyMatch(role -> role.isActive()
+                        && (role.getRole().getCode() == RoleCode.ADMIN || role.getRole().getCode() == RoleCode.PRINT_STAFF)))
+                .orElse(false);
+        if (!buyer && !seller && !operator) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Order does not exist.");
+        }
+        return order;
+    }
+
     private List<PhysicalOrderItem> sortedItems(int id) {
         return orderItems.findByOrderId(id).stream()
                 .sorted(Comparator.comparing(PhysicalOrderItem::getVariantId)).toList();
@@ -235,7 +328,8 @@ public class OrderServiceImpl implements OrderService {
     private OrderResponse response(PhysicalOrder order) {
         var items = orderItems.findByOrderId(order.getId()).stream()
                 .map(item -> new OrderItemResponse(item.getId(), item.getVariantId(), item.getSkuSnapshot(),
-                        item.getQuantity(), item.getUnitPrice(), item.getLineTotal())).toList();
+                        item.getQuantity(), item.getUnitPrice(), item.getLineTotal(), item.getProductTitleSnapshot(),
+                        item.getVariantSnapshot())).toList();
         return OrderResponse.from(order, items);
     }
 }

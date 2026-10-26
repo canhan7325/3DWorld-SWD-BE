@@ -22,7 +22,7 @@ import tools.jackson.databind.ObjectMapper;
 public class ZaloPayClient {
     private final ZaloPayProperties properties;
     private final ObjectMapper objectMapper;
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build();
 
     public Map<String, Object> createOrder(Map<String, Object> payload) {
         return post(properties.createUrl(), payload);
@@ -76,6 +76,7 @@ public class ZaloPayClient {
                             + "=" + URLEncoder.encode(String.valueOf(entry.getValue()), StandardCharsets.UTF_8))
                     .collect(Collectors.joining("&"));
             HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(java.time.Duration.ofSeconds(15))
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();

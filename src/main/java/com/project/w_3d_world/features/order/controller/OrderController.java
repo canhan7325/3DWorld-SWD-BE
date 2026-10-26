@@ -2,7 +2,9 @@ package com.project.w_3d_world.features.order.controller;
 
 import com.project.w_3d_world.common.config.AuthenticatedUser;
 import com.project.w_3d_world.common.response.ApiResponse;
+import com.project.w_3d_world.features.order.dto.OrderRequests.CancelRequest;
 import com.project.w_3d_world.features.order.dto.OrderRequests.CheckoutRequest;
+import com.project.w_3d_world.features.order.dto.OrderRequests.HistoryResponse;
 import com.project.w_3d_world.features.order.dto.OrderRequests.StatusRequest;
 import com.project.w_3d_world.features.order.dto.OrderResponses.OrderResponse;
 import com.project.w_3d_world.features.order.service.OrderService;
@@ -61,5 +63,33 @@ public class OrderController {
             @PathVariable int orderId,
             @Valid @RequestBody StatusRequest request) {
         return ApiResponse.success(orders.updateStatus(user.userId(), orderId, request.status()));
+    }
+
+    @GetMapping("/{orderId}")
+    @Operation(summary = "Get order detail", description = "Read an order owned by the buyer/seller, or by authorized operational staff.")
+    public ApiResponse<OrderResponse> detail(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable int orderId) {
+        return ApiResponse.success(orders.detail(user.userId(), orderId));
+    }
+
+    @GetMapping("/{orderId}/history")
+    @Operation(summary = "Get order status history", description = "Return persisted status changes in chronological order with ownership checks.")
+    public ApiResponse<List<HistoryResponse>> history(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable int orderId) {
+        return ApiResponse.success(orders.history(user.userId(), orderId));
+    }
+
+    @PostMapping("/{orderId}/cancel")
+    @Operation(summary = "Cancel unpaid order", description = "Buyer cancellation releases reserved stock atomically. Repeated cancellation is idempotent; "
+                    + "paid orders require the refund workflow.")
+    public ApiResponse<OrderResponse> cancel(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable int orderId,
+            @Valid @RequestBody CancelRequest request) {
+        return ApiResponse.success(orders.cancel(user.userId(), orderId, request.reason()));
+    }
+
+    @PostMapping("/{orderId}/confirm-received")
+    @Operation(summary = "Confirm order received", description = "Buyer confirms a delivered order once and starts the snapshotted refund window. This does not "
+                    + "release seller funds.")
+    public ApiResponse<OrderResponse> received(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable int orderId) {
+        return ApiResponse.success(orders.confirmReceived(user.userId(), orderId));
     }
 }

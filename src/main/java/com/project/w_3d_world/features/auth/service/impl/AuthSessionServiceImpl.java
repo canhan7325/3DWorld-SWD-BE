@@ -26,9 +26,8 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     @Transactional(readOnly = true)
     public void validateSession(int userId, UUID sessionId, Instant issuedAt) {
         User user = userRepository.findById(userId).orElse(null);
-        if (user == null || !user.isActive()
-                || (user.getUpdatedAt() != null && issuedAt != null
-                    && !issuedAt.isAfter(user.getUpdatedAt()))) {
+        if (user == null || !user.isActive() || sessionId == null || issuedAt == null
+                || sessionId.getMostSignificantBits() != user.getAuthVersion()) {
             throw ApiException.invalidSession();
         }
     }
@@ -36,7 +35,7 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     @Override
     @Transactional
     public void revokeSession(int userId, UUID sessionId) {
-        userRepository.findById(userId).ifPresent(user -> {
+        userRepository.lockById(userId).ifPresent(user -> {
             user.revokeSessions();
             userRepository.saveAndFlush(user);
         });
@@ -45,7 +44,7 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     @Override
     @Transactional
     public void revokeAllSessions(int userId) {
-        userRepository.findById(userId).ifPresent(user -> {
+        userRepository.lockById(userId).ifPresent(user -> {
             user.revokeSessions();
             userRepository.saveAndFlush(user);
         });

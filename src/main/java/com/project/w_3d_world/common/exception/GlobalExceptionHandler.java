@@ -1,7 +1,9 @@
 package com.project.w_3d_world.common.exception;
 
 import com.project.w_3d_world.common.response.ApiResponse;
-
+import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -10,10 +12,6 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
-
-import java.time.OffsetDateTime;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -63,6 +61,6 @@ public class GlobalExceptionHandler {
                 .body(
                         ApiResponse.error(
                                 HttpStatus.CONFLICT.value(),
-                                "The account already exists or violates a database constraint."));
+                                "The request violates a database constraint or references data still in use."));
     }
 }

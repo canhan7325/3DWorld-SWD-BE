@@ -37,4 +37,13 @@ public class ProductMedia {
     private Instant createdAt = Instant.now();
     @Column(name = "variant_id")
     private Integer variantId;
+
+    public ProductMedia(int productId, Integer variantId, String url, int sortOrder) {
+        this.productId = productId;
+        this.variantId = variantId;
+        this.mediaUrl = url;
+        this.mediaType = "IMAGE";
+        this.sortOrder = sortOrder;
+    }
+
 }

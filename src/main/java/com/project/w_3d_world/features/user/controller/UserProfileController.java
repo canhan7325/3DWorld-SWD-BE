@@ -2,18 +2,19 @@ package com.project.w_3d_world.features.user.controller;
 
 import com.project.w_3d_world.common.config.AuthenticatedUser;
 import com.project.w_3d_world.common.response.ApiResponse;
+import com.project.w_3d_world.features.auth.dto.response.UserResponse;
 import com.project.w_3d_world.features.user.dto.ProfileRequests.AddressRequest;
 import com.project.w_3d_world.features.user.dto.ProfileRequests.BankRequest;
 import com.project.w_3d_world.features.user.dto.ProfileRequests.UpdateProfileRequest;
-import com.project.w_3d_world.features.user.service.UserProfileService;
 import com.project.w_3d_world.features.user.service.AvatarService;
-import com.project.w_3d_world.features.auth.dto.response.UserResponse;
+import com.project.w_3d_world.features.user.service.UserProfileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.time.OffsetDateTime;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -23,17 +24,19 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.http.MediaType;
 
 @RestController
 @RequestMapping("/api/users/me")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearerAuth")
 @PreAuthorize("isAuthenticated()")
-@Tag(name = "User profile", description = "Manage the signed-in profile, addresses, and bank accounts.")
+@Tag(
+        name = "User profile",
+        description = "Manage the signed-in profile, addresses, and bank accounts.")
 public class UserProfileController {
     private final UserProfileService service;
     private final AvatarService avatars;
@@ -50,8 +53,18 @@ public class UserProfileController {
         return ApiResponse.success(avatars.upload(user.userId(), file));
     }
 
+    @GetMapping
+    @Operation(
+            summary = "Read own profile",
+            description = "Return the signed-in account profile, avatar, roles and current capabilities.")
+    public ApiResponse<UserResponse> me(@AuthenticationPrincipal AuthenticatedUser user) {
+        return ApiResponse.success(service.profile(user.userId()));
+    }
+
     @PatchMapping
-    @Operation(summary = "Update profile", description = "Update the signed-in user's name and phone number.")
+    @Operation(
+            summary = "Update profile",
+            description = "Update the signed-in user's name and phone number.")
     public ApiResponse<?> profile(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody UpdateProfileRequest request) {
@@ -59,13 +72,18 @@ public class UserProfileController {
     }
 
     @GetMapping("/addresses")
-    @Operation(summary = "List addresses", description = "List delivery addresses owned by the signed-in user.")
+    @Operation(
+            summary = "List addresses",
+            description = "List delivery addresses owned by the signed-in user.")
     public ApiResponse<?> addresses(@AuthenticationPrincipal AuthenticatedUser user) {
         return ApiResponse.success(service.addresses(user.userId()));
     }
 
     @PostMapping("/addresses")
-    @Operation(summary = "Add address", description = "Create a delivery address; the first address becomes default.")
+    @ResponseStatus(org.springframework.http.HttpStatus.CREATED)
+    @Operation(
+            summary = "Add address",
+            description = "Create a delivery address; the first address becomes default.")
     public ApiResponse<?> addAddress(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody AddressRequest request) {
@@ -73,7 +91,9 @@ public class UserProfileController {
     }
 
     @PatchMapping("/addresses/{id}")
-    @Operation(summary = "Update address", description = "Update an address owned by the signed-in user.")
+    @Operation(
+            summary = "Update address",
+            description = "Update an address owned by the signed-in user.")
     public ApiResponse<?> updateAddress(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable int id,
@@ -82,7 +102,9 @@ public class UserProfileController {
     }
 
     @DeleteMapping("/addresses/{id}")
-    @Operation(summary = "Delete address", description = "Delete an address owned by the signed-in user.")
+    @Operation(
+            summary = "Delete address",
+            description = "Delete an address owned by the signed-in user.")
     public ApiResponse<Void> deleteAddress(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable int id) {
@@ -91,7 +113,9 @@ public class UserProfileController {
     }
 
     @PostMapping("/addresses/{id}/default")
-    @Operation(summary = "Set default address", description = "Set one owned address as default.")
+    @Operation(
+            summary = "Set default address",
+            description = "Set one owned address as default.")
     public ApiResponse<?> defaultAddress(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable int id) {
@@ -107,6 +131,7 @@ public class UserProfileController {
     }
 
     @PostMapping("/bank-accounts")
+    @ResponseStatus(org.springframework.http.HttpStatus.CREATED)
     @Operation(
             summary = "Add bank account",
             description = "Add a bank account; the account number is never returned in full.")

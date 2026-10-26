@@ -10,4 +10,5 @@ public record ZaloPayProperties(
         String createUrl,
         String queryUrl,
         String refundUrl,
-        String callbackUrl) {}
+        String callbackUrl,
+        String redirectUrl) {}

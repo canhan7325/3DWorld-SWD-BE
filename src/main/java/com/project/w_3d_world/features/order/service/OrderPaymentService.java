@@ -4,6 +4,7 @@ import com.project.w_3d_world.features.order.entity.OrderStatusHistory;
 import com.project.w_3d_world.features.order.repository.OrderStatusHistoryRepository;
 import com.project.w_3d_world.features.order.repository.PhysicalOrderRepository;
 import com.project.w_3d_world.features.payment.entity.PaymentTransaction;
+import com.project.w_3d_world.features.storefront.service.StorefrontService;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -12,11 +13,16 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class OrderPaymentService {
+    private final StorefrontService storefronts;
     private final PhysicalOrderRepository orders;
     private final OrderStatusHistoryRepository history;
 
     @Transactional
     public void verified(PaymentTransaction transaction) {
+        if (transaction.getSubscriptionId() != null) {
+            storefronts.activateVerifiedPayment(transaction);
+            return;
+        }
         if (transaction.getPhysicalOrderId() == null) {
             // BE2 entitlement/POD and future wallet integration are separate handlers.
             return;
