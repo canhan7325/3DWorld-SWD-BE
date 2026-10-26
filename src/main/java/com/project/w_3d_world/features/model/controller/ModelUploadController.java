@@ -29,8 +29,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class ModelUploadController {
     private final ModelUploadService uploadService;
 
-    @PostMapping(value = "/uploads", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(summary = "Upload a new private model")
+    @PostMapping(value = "/create", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Tạo mô hình 3D riêng tư từ tệp tải lên")
     public ResponseEntity<ApiResponse<ModelUploadResponse>> upload(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestPart("file") MultipartFile file) {

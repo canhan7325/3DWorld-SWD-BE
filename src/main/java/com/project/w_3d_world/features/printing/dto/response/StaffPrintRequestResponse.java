@@ -13,4 +13,14 @@ public record StaffPrintRequestResponse(
         PrintRequestFileVersionResponse currentFile,
         JsonNode currentSpecification,
         List<PrintRequestItemResponse> items,
-        List<PrintRequestTechnicalReviewResponse> reviews) {}
+        List<PrintRequestTechnicalReviewResponse> reviews,
+        Integer assignedStaffId,
+        Instant handledAt) {
+    public StaffPrintRequestResponse(Integer printRequestId, String status, Instant submittedAt,
+            Integer currentFileVersion, Integer currentSpecVersion,
+            PrintRequestFileVersionResponse currentFile, JsonNode currentSpecification,
+            List<PrintRequestItemResponse> items, List<PrintRequestTechnicalReviewResponse> reviews) {
+        this(printRequestId, status, submittedAt, currentFileVersion, currentSpecVersion,
+                currentFile, currentSpecification, items, reviews, null, null);
+    }
+}

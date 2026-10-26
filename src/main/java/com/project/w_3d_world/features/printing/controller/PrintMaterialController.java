@@ -5,6 +5,7 @@ import com.project.w_3d_world.features.printing.dto.response.PagedPrintMaterialR
 import com.project.w_3d_world.features.printing.dto.response.PrintMaterialResponse;
 import com.project.w_3d_world.features.printing.service.PrintMaterialService;
 import com.project.w_3d_world.features.printing.validation.PrintMaterialRequestValidation;
+import io.swagger.v3.oas.annotations.Operation;
 
 import lombok.RequiredArgsConstructor;
 
@@ -21,6 +22,7 @@ public class PrintMaterialController {
     private final PrintMaterialService service;
 
     @GetMapping("/getAll")
+    @Operation(summary = "Lấy danh sách vật liệu in đang hoạt động")
     public ApiResponse<PagedPrintMaterialResponse> list(
             @RequestParam(required = false) String technologyCode,
             @RequestParam(defaultValue = "0") String page,
@@ -33,6 +35,7 @@ public class PrintMaterialController {
     }
 
     @GetMapping("/getId/{materialId}")
+    @Operation(summary = "Lấy chi tiết vật liệu in đang hoạt động theo ID")
     public ApiResponse<PrintMaterialResponse> detail(@PathVariable String materialId) {
         int id = PrintMaterialRequestValidation.parseCustomerMaterialId(materialId);
         return ApiResponse.success(service.getActiveMaterialById(id));

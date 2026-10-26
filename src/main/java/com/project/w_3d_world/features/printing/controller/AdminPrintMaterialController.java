@@ -38,7 +38,7 @@ public class AdminPrintMaterialController {
     private final AdminPrintMaterialService service;
 
     @GetMapping("/getAll")
-    @Operation(summary = "List all print materials for administrators")
+    @Operation(summary = "Lấy danh sách tất cả vật liệu in cho quản trị viên")
     public ApiResponse<PagedAdminPrintMaterialResponse> list(
             @RequestParam(required = false) String technologyCode,
             @RequestParam(required = false) String isActive,
@@ -53,7 +53,7 @@ public class AdminPrintMaterialController {
     }
 
     @PostMapping("/create")
-    @Operation(summary = "Create a print material")
+    @Operation(summary = "Tạo vật liệu in mới")
     public ResponseEntity<ApiResponse<AdminPrintMaterialResponse>> create(
             @AuthenticationPrincipal AuthenticatedUser admin, @RequestBody JsonNode body) {
         AdminPrintMaterialResponse created = service.create(PrintMaterialRequestValidation.requireAdminId(admin),
@@ -62,8 +62,8 @@ public class AdminPrintMaterialController {
                 .body(ApiResponse.created("Material created successfully", created));
     }
 
-    @PatchMapping("/update/{materialId}")
-    @Operation(summary = "Update a material's estimated cost")
+    @PatchMapping("/updateEstimatedCost/{materialId}")
+    @Operation(summary = "Cập nhật chi phí ước tính của vật liệu in")
     public ApiResponse<AdminPrintMaterialResponse> updateCost(
             @AuthenticationPrincipal AuthenticatedUser admin,
             @PathVariable String materialId, @RequestBody JsonNode body) {
@@ -73,7 +73,7 @@ public class AdminPrintMaterialController {
     }
 
     @PatchMapping("/updateStatus/{materialId}")
-    @Operation(summary = "Activate or deactivate a print material")
+    @Operation(summary = "Cập nhật trạng thái hoạt động của vật liệu in")
     public ApiResponse<AdminPrintMaterialResponse> updateStatus(
             @AuthenticationPrincipal AuthenticatedUser admin,
             @PathVariable String materialId, @RequestBody JsonNode body) {

@@ -72,8 +72,9 @@ public class PrintRequestStaffAccessService {
                 request.getCurrentFileVersion(), request.getCurrentSpecVersion(),
                 new PrintRequestFileVersionResponse(requestId, file.getVersion(), file.getFileName(),
                         file.getFileSize(), file.getFileType(), file.getUploadedAt(), true,
-                        "/api/staff/print/requests/" + requestId + "/file/download"),
-                json.readTree(spec.getSpecificationData()), itemResponses, reviewResponses);
+                        "/api/staff/print/requests/getId/" + requestId + "/file/download"),
+                json.readTree(spec.getSpecificationData()), itemResponses, reviewResponses,
+                request.getHandledByUserId(), request.getHandledAt());
     }
 
     public AuthorizedModelDownload openCurrentFile(Integer requestId) {

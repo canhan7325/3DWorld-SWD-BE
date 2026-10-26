@@ -12,6 +12,10 @@ import com.project.w_3d_world.features.model.service.ModelStorageService;
 import com.project.w_3d_world.features.model.repository.Model3DRepository;
 import com.project.w_3d_world.features.model.repository.ModelFileRepository;
 import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
+import com.project.w_3d_world.features.payment.entity.PaymentAttempt;
+import com.project.w_3d_world.features.payment.entity.PaymentTransaction;
+import com.project.w_3d_world.features.payment.repository.PaymentAttemptRepository;
+import com.project.w_3d_world.features.payment.repository.PaymentTransactionRepository;
 import com.project.w_3d_world.features.printing.entity.PrintQuote;
 import com.project.w_3d_world.features.printing.entity.PrintQuoteItem;
 import com.project.w_3d_world.features.printing.entity.PrintRequest;
@@ -39,10 +43,20 @@ import com.project.w_3d_world.features.printing.repository.PrintRequestRepositor
 import com.project.w_3d_world.features.printing.repository.PrintRequestStatusHistoryRepository;
 import com.project.w_3d_world.features.printing.repository.PrintRequestTechnicalReviewRepository;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestProductionService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestProductionManagementService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestShippingAddressService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestShippingReadinessService;
+import com.project.w_3d_world.features.user.entity.UserAddress;
+import com.project.w_3d_world.features.user.repository.UserAddressRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.TypedQuery;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestPaymentFulfillmentService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestPaymentFulfillmentWorker;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestQuoteService;
 import com.project.w_3d_world.features.printing.service.impl.PrintQuoteExpirationWorker;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestStateService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestStaffAccessService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestStaffQueueService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestTechnicalReviewService;
 import com.project.w_3d_world.features.printing.validation.PrintRequestSubmissionValidation;
 import com.project.w_3d_world.features.printing.validation.PrintRequestReviewPolicy;
@@ -57,6 +71,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.jdbc.core.JdbcTemplate;
 import jakarta.persistence.LockModeType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +90,487 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class PrintRequestServiceTest {
+    @Test
+    void draftSelectsOwnedAddressSnapshotAndFreezesItAfterSubmit() {
+        var requestRepo = mock(PrintRequestRepository.class);
+        var addressRepo = mock(UserAddressRepository.class);
+        var audit = mock(AuditLogRepository.class);
+        var shipping = new PrintRequestShippingAddressService(requestRepo, addressRepo,
+                audit, JsonMapper.builder().build());
+        var request = request(10, 7);
+        var address = new UserAddress(7, "Buyer", "0900000000", "1 Main St", "HCMC");
+        address.updateRegion("HCMC", "District 1", "Ward 1");
+        ReflectionTestUtils.setField(address, "id", 3);
+        when(requestRepo.findOwnedByIdForUpdate(10, 7)).thenReturn(Optional.of(request));
+        when(addressRepo.findById(3)).thenReturn(Optional.of(address));
+
+        shipping.select(7, 10, 3);
+        shipping.select(7, 10, 3);
+
+        assertEquals(3, request.getShippingAddressId());
+        assertTrue(request.getShippingAddressSnapshot().contains("1 Main St"));
+        verify(requestRepo).saveAndFlush(request);
+        verify(audit).saveAndFlush(any());
+        request.submit();
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> shipping.select(7, 10, 3)).getStatus());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ApiException.class,
+                () -> shipping.select(8, 10, 3)).getStatus());
+    }
+
+    @Test
+    void shippingAddressSelectionRejectsAnotherCustomersAddressAndIncompleteAddress() {
+        var requestRepo = mock(PrintRequestRepository.class);
+        var addressRepo = mock(UserAddressRepository.class);
+        var audit = mock(AuditLogRepository.class);
+        var shipping = new PrintRequestShippingAddressService(requestRepo, addressRepo,
+                audit, JsonMapper.builder().build());
+        var request = request(10, 7);
+        when(requestRepo.findOwnedByIdForUpdate(10, 7)).thenReturn(Optional.of(request));
+        when(addressRepo.findById(3)).thenReturn(Optional.of(
+                new UserAddress(8, "Other", "0900000000", "1 Main St", "HCMC")));
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ApiException.class,
+                () -> shipping.select(7, 10, 3)).getStatus());
+        when(addressRepo.findById(3)).thenReturn(Optional.of(
+                new UserAddress(7, "Buyer", null, "1 Main St", "HCMC")));
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ApiException.class,
+                () -> shipping.select(7, 10, 3)).getStatus());
+        verify(requestRepo, never()).saveAndFlush(any());
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void shippingReadinessRequiresAllItemsAddressTrustedQueueAndNoShipment() {
+        var requestRepo = mock(PrintRequestRepository.class);
+        var itemRepo = mock(PrintRequestItemRepository.class);
+        var quoteRepo = mock(PrintQuoteRepository.class);
+        var historyRepo = mock(PrintRequestStatusHistoryRepository.class);
+        var entityManager = mock(EntityManager.class);
+        @SuppressWarnings("unchecked")
+        TypedQuery<Long> query = mock(TypedQuery.class);
+        var shipping = new PrintRequestShippingReadinessService(requestRepo, itemRepo,
+                quoteRepo, historyRepo, entityManager, JsonMapper.builder().build());
+        var request = acceptedRequest(10, 7, 55);
+        request.lockForProduction(Instant.now());
+        request.selectShippingAddress(3, "{\"recipientName\":\"Buyer\",\"phone\":\"0900000000\","
+                + "\"addressLine\":\"1 Main St\",\"province\":\"HCMC\","
+                + "\"district\":\"District 1\",\"ward\":\"Ward 1\"}");
+        var quote = PrintQuote.issueUpfront(10, 9, 1, 2, 1,
+                new BigDecimal("100.00"), null, Instant.now().minusSeconds(3600),
+                Instant.now().plusSeconds(3600));
+        ReflectionTestUtils.setField(quote, "printQuoteId", 55);
+        quote.accept(Instant.now());
+        var first = item(21, 10, 4, 12, null);
+        first.queueForProduction();
+        first.startPrinting();
+        first.completePrinting();
+        var second = item(22, 10, 4, 12, null);
+        second.queueForProduction();
+        second.startPrinting();
+        second.completePrinting();
+        when(requestRepo.findByPrintRequestIdAndCustomerUserId(10, 7)).thenReturn(Optional.of(request));
+        when(requestRepo.findById(10)).thenReturn(Optional.of(request));
+        when(itemRepo.findByPrintRequestIdOrderByPrintRequestItemIdAsc(10))
+                .thenReturn(List.of(first, second));
+        when(quoteRepo.findByPrintQuoteIdAndPrintRequestId(55, 10)).thenReturn(Optional.of(quote));
+        when(historyRepo.existsByPrintRequestIdAndToStatusAndSourceEventIdStartingWith(
+                10, "IN_QUEUE", "POD_PAYMENT_VERIFIED:10:tx:")).thenReturn(true);
+        when(entityManager.createQuery(anyString(), eq(Long.class))).thenReturn(query);
+        when(query.setParameter("requestId", 10)).thenReturn(query);
+        when(query.getSingleResult()).thenReturn(0L);
+
+        var ready = shipping.forCustomer(7, 10);
+        assertTrue(ready.shippingReady());
+        assertEquals(2, ready.completedItems());
+        assertEquals(2, ready.totalItems());
+        assertFalse(ready.shipmentExists());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ApiException.class,
+                () -> shipping.forCustomer(8, 10)).getStatus());
+
+        ReflectionTestUtils.setField(second, "productionStatus", "PRINTING");
+        assertTrue(shipping.forStaff(10).shippingBlockers().contains("PRODUCTION_ITEMS_INCOMPLETE"));
+        ReflectionTestUtils.setField(second, "productionStatus", "QUEUED");
+        assertFalse(shipping.forStaff(10).shippingReady());
+        when(itemRepo.findByPrintRequestIdOrderByPrintRequestItemIdAsc(10)).thenReturn(List.of());
+        assertTrue(shipping.forStaff(10).shippingBlockers().contains("PRODUCTION_ITEMS_MISSING"));
+        when(itemRepo.findByPrintRequestIdOrderByPrintRequestItemIdAsc(10))
+                .thenReturn(List.of(first, second));
+        ReflectionTestUtils.setField(second, "productionStatus", "COMPLETED");
+        when(query.getSingleResult()).thenReturn(1L);
+        assertTrue(shipping.forStaff(10).shippingBlockers().contains("POD_SHIPMENT_ALREADY_EXISTS"));
+        when(query.getSingleResult()).thenReturn(0L);
+        ReflectionTestUtils.setField(quote, "specificationVersionSnapshot", 99);
+        assertTrue(shipping.forStaff(10).shippingBlockers()
+                .contains("CURRENT_ACCEPTED_FULL_QUOTE_MISSING"));
+        ReflectionTestUtils.setField(quote, "specificationVersionSnapshot", 1);
+        ReflectionTestUtils.setField(quote, "acceptedAt", null);
+        assertTrue(shipping.forStaff(10).shippingBlockers()
+                .contains("CURRENT_ACCEPTED_FULL_QUOTE_MISSING"));
+        assertEquals("IN_QUEUE", request.getStatus());
+        verify(itemRepo, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void shippingReadinessFailsClosedOnMissingQueueQuoteOrAddress() {
+        var requestRepo = mock(PrintRequestRepository.class);
+        var itemRepo = mock(PrintRequestItemRepository.class);
+        var quoteRepo = mock(PrintQuoteRepository.class);
+        var historyRepo = mock(PrintRequestStatusHistoryRepository.class);
+        var entityManager = mock(EntityManager.class);
+        @SuppressWarnings("unchecked") TypedQuery<Long> query = mock(TypedQuery.class);
+        var shipping = new PrintRequestShippingReadinessService(requestRepo, itemRepo,
+                quoteRepo, historyRepo, entityManager, JsonMapper.builder().build());
+        var request = acceptedRequest(10, 7, 55);
+        request.lockForProduction(Instant.now());
+        var item = item(21, 10, 4, 12, null);
+        item.queueForProduction();
+        item.startPrinting();
+        item.completePrinting();
+        when(requestRepo.findById(10)).thenReturn(Optional.of(request));
+        when(itemRepo.findByPrintRequestIdOrderByPrintRequestItemIdAsc(10))
+                .thenReturn(List.of(item));
+        when(entityManager.createQuery(anyString(), eq(Long.class))).thenReturn(query);
+        when(query.setParameter("requestId", 10)).thenReturn(query);
+        when(query.getSingleResult()).thenReturn(0L);
+
+        var result = shipping.forStaff(10);
+        assertFalse(result.shippingReady());
+        assertTrue(result.shippingBlockers().contains("VERIFIED_PAYMENT_QUEUE_EVENT_MISSING"));
+        assertTrue(result.shippingBlockers().contains("CURRENT_ACCEPTED_FULL_QUOTE_MISSING"));
+        assertTrue(result.shippingBlockers().contains("SHIPPING_ADDRESS_MISSING"));
+        request.cancel("cancelled");
+        assertTrue(shipping.forStaff(10).shippingBlockers().contains("NOT_IN_PRODUCTION_QUEUE"));
+        verify(itemRepo, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void productionBoardPaginatesByQueueTimeAndBatchesItemStates() {
+        var requests = mock(PrintRequestRepository.class);
+        var items = mock(PrintRequestItemRepository.class);
+        var production = new PrintRequestProductionManagementService(requests, items,
+                mock(PrintQuoteRepository.class), mock(PrintQuoteItemRepository.class),
+                mock(PrintRequestStatusHistoryRepository.class), mock(AuditLogRepository.class),
+                JsonMapper.builder().build());
+        var request = acceptedRequest(10, 7, 55);
+        request.lockForProduction(Instant.parse("2026-10-26T10:00:00Z"));
+        var queued = item(21, 10, 4, 12, null);
+        queued.queueForProduction();
+        var completed = item(22, 10, 4, 12, null);
+        completed.queueForProduction();
+        completed.startPrinting();
+        completed.completePrinting();
+        when(requests.findProductionBoard(eq("QUEUED"), any(Pageable.class)))
+                .thenAnswer(call -> new PageImpl<>(List.of(request), call.getArgument(1), 11));
+        when(items.findByPrintRequestIdInOrderByPrintRequestIdAscPrintRequestItemIdAsc(List.of(10)))
+                .thenReturn(List.of(queued, completed));
+
+        var page = production.board("QUEUED", 1, 10);
+
+        assertEquals(11, page.totalElements());
+        assertEquals(2, page.totalPages());
+        assertEquals(2, page.content().getFirst().production().totalItems());
+        assertEquals(1, page.content().getFirst().production().completedItems());
+        var pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(requests).findProductionBoard(eq("QUEUED"), pageable.capture());
+        assertEquals(Sort.by(Sort.Order.asc("lockedAt"), Sort.Order.asc("printRequestId")),
+                pageable.getValue().getSort());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ApiException.class,
+                () -> production.board("MACHINE_RUNNING", 0, 10)).getStatus());
+    }
+
+    @Test
+    void productionDetailReturnsLockedQuoteSnapshotsWithoutPrivateFileReference() {
+        var requests = mock(PrintRequestRepository.class);
+        var items = mock(PrintRequestItemRepository.class);
+        var quotes = mock(PrintQuoteRepository.class);
+        var quoteItems = mock(PrintQuoteItemRepository.class);
+        var histories = mock(PrintRequestStatusHistoryRepository.class);
+        var production = new PrintRequestProductionManagementService(requests, items,
+                quotes, quoteItems, histories, mock(AuditLogRepository.class),
+                JsonMapper.builder().build());
+        var request = acceptedRequest(10, 7, 55);
+        request.lockForProduction(Instant.now());
+        var quote = PrintQuote.issueUpfront(10, 9, 1, 2, 1,
+                new BigDecimal("100.00"), null, Instant.now().minusSeconds(3600), Instant.now().plusSeconds(3600));
+        ReflectionTestUtils.setField(quote, "printQuoteId", 55);
+        quote.accept(Instant.now());
+        var item = item(21, 10, 4, 12, null);
+        item.queueForProduction();
+        var line = new PrintQuoteItem(55, 21, 2, 1, "/private/model/file",
+                "{\"materialId\":4}", 2, new BigDecimal("80.00"),
+                new BigDecimal("20.00"), BigDecimal.ZERO, new BigDecimal("100.00"));
+        when(requests.findById(10)).thenReturn(Optional.of(request));
+        when(histories.existsByPrintRequestIdAndToStatusAndSourceEventIdStartingWith(
+                10, "IN_QUEUE", "POD_PAYMENT_VERIFIED:10:tx:")).thenReturn(true);
+        when(quotes.findByPrintQuoteIdAndPrintRequestId(55, 10)).thenReturn(Optional.of(quote));
+        when(items.findByPrintRequestIdOrderByPrintRequestItemIdAsc(10)).thenReturn(List.of(item));
+        when(quoteItems.findByPrintQuoteIdOrderByPrintQuoteItemIdAsc(55)).thenReturn(List.of(line));
+
+        var detail = production.detail(10);
+
+        assertEquals("IN_QUEUE", detail.status());
+        assertEquals(55, detail.currentQuoteId());
+        assertEquals("QUEUED", detail.items().getFirst().item().productionStatus());
+        assertTrue(detail.items().getFirst().canStart());
+        assertFalse(detail.items().getFirst().canComplete());
+        assertEquals(new BigDecimal("100.00"), detail.quoteItems().getFirst().lineTotal());
+        assertFalse(detail.toString().contains("/private/model/file"));
+    }
+
+    @Test
+    void productionStartCompleteAreItemScopedIdempotentAndAudited() {
+        var quoteRepo = mock(PrintQuoteRepository.class);
+        var audit = mock(AuditLogRepository.class);
+        var production = new PrintRequestProductionManagementService(requests, items,
+                quoteRepo, mock(PrintQuoteItemRepository.class), histories, audit,
+                JsonMapper.builder().build());
+        var request = acceptedRequest(10, 7, 55);
+        request.lockForProduction(Instant.now());
+        var quote = PrintQuote.issueUpfront(10, 9, 1, 2, 1,
+                new BigDecimal("100.00"), null, Instant.now().minusSeconds(3600), Instant.now().plusSeconds(3600));
+        ReflectionTestUtils.setField(quote, "printQuoteId", 55);
+        quote.accept(Instant.now());
+        var first = item(21, 10, 4, 12, null);
+        first.queueForProduction();
+        var second = item(22, 10, 4, 12, null);
+        second.queueForProduction();
+        when(requests.findByIdForUpdate(10)).thenReturn(Optional.of(request));
+        when(histories.existsByPrintRequestIdAndToStatusAndSourceEventIdStartingWith(
+                10, "IN_QUEUE", "POD_PAYMENT_VERIFIED:10:tx:")).thenReturn(true);
+        when(quoteRepo.findByPrintQuoteIdAndPrintRequestId(55, 10)).thenReturn(Optional.of(quote));
+        when(items.findByPrintRequestIdOrderByPrintRequestItemIdAsc(10)).thenReturn(List.of(first, second));
+
+        assertEquals("PRINTING", production.start(9, 10, 21).productionStatus());
+        production.start(9, 10, 21);
+        assertEquals("COMPLETED", production.complete(9, 10, 21).productionStatus());
+        production.complete(9, 10, 21);
+
+        assertEquals("IN_QUEUE", request.getStatus());
+        assertEquals("QUEUED", second.getProductionStatus());
+        verify(items, times(2)).saveAndFlush(first);
+        var events = ArgumentCaptor.forClass(AuditLog.class);
+        verify(audit, times(2)).saveAndFlush(events.capture());
+        assertEquals("POD_ITEM_PRINTING_STARTED", events.getAllValues().get(0).getActionType());
+        assertEquals("POD_ITEM_PRINTING_COMPLETED", events.getAllValues().get(1).getActionType());
+        assertEquals(9, events.getAllValues().get(0).getActorUserId());
+        assertTrue(events.getAllValues().get(0).getMetadata().contains("\"printRequestItemId\":21"));
+        verify(histories, never()).saveAndFlush(any());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> production.start(9, 10, 21)).getStatus());
+    }
+
+    @Test
+    void productionMutationRequiresTrustedQueueAndExactRequestItem() {
+        var quoteRepo = mock(PrintQuoteRepository.class);
+        var audit = mock(AuditLogRepository.class);
+        var production = new PrintRequestProductionManagementService(requests, items,
+                quoteRepo, mock(PrintQuoteItemRepository.class), histories, audit,
+                JsonMapper.builder().build());
+        var request = acceptedRequest(10, 7, 55);
+        var foreign = item(21, 11, 4, 12, null);
+        foreign.queueForProduction();
+        when(requests.findByIdForUpdate(10)).thenReturn(Optional.of(request));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> production.start(9, 10, 21)).getStatus());
+        request.lockForProduction(Instant.now());
+        when(histories.existsByPrintRequestIdAndToStatusAndSourceEventIdStartingWith(
+                10, "IN_QUEUE", "POD_PAYMENT_VERIFIED:10:tx:")).thenReturn(true);
+        var quote = PrintQuote.issueUpfront(10, 9, 1, 2, 1,
+                new BigDecimal("100.00"), null, Instant.now().minusSeconds(3600), Instant.now().plusSeconds(3600));
+        ReflectionTestUtils.setField(quote, "printQuoteId", 55);
+        quote.accept(Instant.now());
+        when(quoteRepo.findByPrintQuoteIdAndPrintRequestId(55, 10)).thenReturn(Optional.of(quote));
+        when(items.findByPrintRequestIdOrderByPrintRequestItemIdAsc(10)).thenReturn(List.of(foreign));
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ApiException.class,
+                () -> production.start(9, 10, 21)).getStatus());
+        request.cancel("cancelled");
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> production.complete(9, 10, 21)).getStatus());
+        verify(items, never()).saveAndFlush(any());
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void customerDetailDerivesItemRowProgressWithoutChangingExistingFields() {
+        var request = request(10, 7);
+        request.useFileVersion(2);
+        request.useSpecVersion(1);
+        request.submit();
+        var first = item(21, 10, 4, 12, null);
+        first.queueForProduction();
+        first.startPrinting();
+        first.completePrinting();
+        var second = item(22, 10, 4, 12, null);
+        second.queueForProduction();
+        when(requests.findByPrintRequestIdAndCustomerUserId(10, 7))
+                .thenReturn(Optional.of(request));
+        when(items.findByPrintRequestIdOrderByPrintRequestItemIdAsc(10))
+                .thenReturn(List.of(first, second));
+
+        var response = service.getMyRequestById(7, 10);
+
+        assertEquals("SUBMITTED", response.status());
+        assertEquals(2, response.production().totalItems());
+        assertEquals(1, response.production().completedItems());
+        assertEquals(1, response.production().queuedItems());
+        assertEquals("PRINTING", response.production().productionDisplayStatus());
+        assertEquals("COMPLETED", response.items().getFirst().productionStatus());
+    }
+
+    @Test
+    void staffReviewQueuePaginatesAndBatchesLatestReviewWithoutCustomerData() {
+        var requests = mock(PrintRequestRepository.class);
+        var reviews = mock(PrintRequestTechnicalReviewRepository.class);
+        var queue = new PrintRequestStaffQueueService(requests,
+                mock(PrintRequestFileVersionRepository.class),
+                mock(PrintRequestSpecVersionRepository.class), reviews,
+                mock(AuditLogRepository.class), JsonMapper.builder().build());
+        var unassigned = request(10, 7);
+        unassigned.useFileVersion(2);
+        unassigned.useSpecVersion(1);
+        unassigned.submit();
+        var assigned = request(11, 8);
+        assigned.useFileVersion(3);
+        assigned.useSpecVersion(2);
+        assigned.submit();
+        assigned.claimReview(9, Instant.now());
+        when(requests.findStaffReviewQueue(eq("ALL"), eq(7), any(Pageable.class)))
+                .thenAnswer(call -> new PageImpl<>(List.of(unassigned, assigned),
+                        call.getArgument(2), 21));
+        when(reviews.findByPrintRequestIdInOrderByCreatedAtDescTechnicalReviewIdDesc(List.of(10, 11)))
+                .thenReturn(List.of(new PrintRequestTechnicalReview(11, 9,
+                        "{\"outcome\":\"APPROVED\",\"reviewedFileVersion\":3,\"reviewedSpecVersion\":2}")));
+
+        var page = queue.list(7, "ALL", 1, 10);
+
+        var pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(requests).findStaffReviewQueue(eq("ALL"), eq(7), pageable.capture());
+        assertEquals(1, pageable.getValue().getPageNumber());
+        assertEquals(10, pageable.getValue().getPageSize());
+        assertEquals(Sort.by(Sort.Order.asc("submittedAt"), Sort.Order.asc("printRequestId")),
+                pageable.getValue().getSort());
+        assertEquals(21, page.totalElements());
+        assertEquals(3, page.totalPages());
+        assertTrue(page.content().getFirst().reviewEligible());
+        assertFalse(page.content().getFirst().quoteEligible());
+        assertNull(page.content().getFirst().assignedStaffId());
+        assertFalse(page.content().getLast().reviewEligible());
+        assertTrue(page.content().getLast().quoteEligible());
+        assertFalse(page.content().getLast().canClaim());
+        assertFalse(page.content().getFirst().toString().contains("customerUserId"));
+        verify(reviews).findByPrintRequestIdInOrderByCreatedAtDescTechnicalReviewIdDesc(List.of(10, 11));
+    }
+
+    @Test
+    void staffReviewQueueUsesPersistedAssignmentFilterAndRejectsInvalidOptions() {
+        var repository = mock(PrintRequestRepository.class);
+        var reviews = mock(PrintRequestTechnicalReviewRepository.class);
+        var queue = new PrintRequestStaffQueueService(repository,
+                mock(PrintRequestFileVersionRepository.class),
+                mock(PrintRequestSpecVersionRepository.class), reviews,
+                mock(AuditLogRepository.class), JsonMapper.builder().build());
+        when(repository.findStaffReviewQueue(eq("UNASSIGNED"), eq(9), any(Pageable.class)))
+                .thenAnswer(call -> new PageImpl<PrintRequest>(List.of(), call.getArgument(2), 0));
+
+        var page = queue.list(9, "UNASSIGNED", 0, 20);
+
+        assertTrue(page.content().isEmpty());
+        assertEquals(0, page.totalElements());
+        verify(repository).findStaffReviewQueue(eq("UNASSIGNED"), eq(9), any(Pageable.class));
+        verifyNoInteractions(reviews);
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ApiException.class,
+                () -> queue.list(9, "NOT_A_FILTER", 0, 20)).getStatus());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ApiException.class,
+                () -> queue.list(9, "ALL", 0, 51)).getStatus());
+    }
+
+    @Test
+    void staffClaimIsIdempotentAuditedAndCompetingStaffConflicts() {
+        var audit = mock(AuditLogRepository.class);
+        var reviews = mock(PrintRequestTechnicalReviewRepository.class);
+        var queue = new PrintRequestStaffQueueService(requests, fileVersions, specVersions,
+                reviews, audit, JsonMapper.builder().build());
+        var request = request(10, 7);
+        request.useFileVersion(2);
+        request.useSpecVersion(1);
+        request.submit();
+        when(requests.findByIdForUpdate(10)).thenReturn(Optional.of(request));
+        when(fileVersions.findByPrintRequestIdAndVersion(10, 2))
+                .thenReturn(Optional.of(mock(PrintRequestFileVersion.class)));
+        when(specVersions.findByPrintRequestIdAndVersion(10, 1))
+                .thenReturn(Optional.of(mock(PrintRequestSpecVersion.class)));
+
+        var first = queue.claim(9, 10);
+        var repeated = queue.claim(9, 10);
+
+        assertEquals(9, first.assignedStaffId());
+        assertEquals(first.handledAt(), repeated.handledAt());
+        assertEquals("SUBMITTED", request.getStatus());
+        assertEquals(2, request.getCurrentFileVersion());
+        assertEquals(1, request.getCurrentSpecVersion());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> queue.claim(8, 10)).getStatus());
+        verify(requests, times(1)).saveAndFlush(request);
+        var event = ArgumentCaptor.forClass(AuditLog.class);
+        verify(audit).saveAndFlush(event.capture());
+        assertEquals("POD_STAFF_REVIEW_CLAIMED", event.getValue().getActionType());
+        assertEquals(9, event.getValue().getActorUserId());
+        assertEquals(10, event.getValue().getEntityId());
+        verifyNoInteractions(histories);
+        try {
+            var method = PrintRequestRepository.class.getMethod("findByIdForUpdate", Integer.class);
+            assertEquals(LockModeType.PESSIMISTIC_WRITE, method.getAnnotation(Lock.class).value());
+        } catch (NoSuchMethodException exception) {
+            fail(exception);
+        }
+    }
+
+    @Test
+    void staffClaimRejectsCancelledQuotedAndLockedRequestsWithoutWrites() {
+        var audit = mock(AuditLogRepository.class);
+        var queue = new PrintRequestStaffQueueService(requests, fileVersions, specVersions,
+                mock(PrintRequestTechnicalReviewRepository.class), audit,
+                JsonMapper.builder().build());
+        var cancelled = request(10, 7);
+        cancelled.useFileVersion(1);
+        cancelled.useSpecVersion(1);
+        cancelled.submit();
+        cancelled.cancel("No longer needed");
+        var quoted = request(11, 7);
+        quoted.useFileVersion(1);
+        quoted.useSpecVersion(1);
+        quoted.submit();
+        quoted.markQuoted(55, 9, Instant.now());
+        var locked = request(12, 7);
+        locked.useFileVersion(1);
+        locked.useSpecVersion(1);
+        locked.submit();
+        locked.lockForProduction(Instant.now());
+        when(requests.findByIdForUpdate(10)).thenReturn(Optional.of(cancelled));
+        when(requests.findByIdForUpdate(11)).thenReturn(Optional.of(quoted));
+        when(requests.findByIdForUpdate(12)).thenReturn(Optional.of(locked));
+
+        for (int id : new int[]{10, 11, 12}) {
+            assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                    () -> queue.claim(9, id)).getStatus());
+        }
+        verify(requests, never()).saveAndFlush(any());
+        verifyNoInteractions(audit, histories);
+    }
+
+    @Test
+    void quoteIssueKeepsExistingStaffAssignment() {
+        var request = request(10, 7);
+        Instant assignedAt = Instant.parse("2026-10-25T10:00:00Z");
+        request.claimReview(9, assignedAt);
+
+        request.markQuoted(55, 10, assignedAt.plusSeconds(600));
+
+        assertEquals(9, request.getHandledByUserId());
+        assertEquals(assignedAt, request.getHandledAt());
+        assertEquals("QUOTED", request.getStatus());
+    }
+
     @Test
     void workflowServiceCountsOnlyConfirmedPostQuoteSubmissions() {
         var requests = mock(PrintRequestRepository.class);
@@ -887,6 +1383,19 @@ class PrintRequestServiceTest {
         // Rejects partial payment (< 100% of total) or non-SUCCESS status
         assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
                 () -> production.activateAfterVerifiedPayment(
+                        10, 91, 501, "POD", "SUCCESS", new BigDecimal("250.00"))).getStatus());
+        request.useFileVersion(3);
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> production.activateAfterVerifiedPayment(
+                        10, 90, 501, "POD", "SUCCESS", new BigDecimal("250.00"))).getStatus());
+        request.useFileVersion(2);
+        request.useSpecVersion(2);
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> production.activateAfterVerifiedPayment(
+                        10, 90, 501, "POD", "SUCCESS", new BigDecimal("250.00"))).getStatus());
+        request.useSpecVersion(1);
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> production.activateAfterVerifiedPayment(
                         10, 90, 501, "POD", "SUCCESS", new BigDecimal("125.00"))).getStatus());
         assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
                 () -> production.activateAfterVerifiedPayment(
@@ -906,6 +1415,259 @@ class PrintRequestServiceTest {
         assertEquals("IN_QUEUE", replay.status());
         verify(histories, times(1)).saveAndFlush(any());
         verify(items, times(1)).saveAndFlush(reqItem);
+        var queuedWorkflow = new PrintRequestWorkflowPolicy().describe(request, List.of(quote),
+                0, false, Instant.now());
+        assertEquals("QUEUED", queuedWorkflow.displayStatus());
+        assertFalse(queuedWorkflow.allowedActions().editFile());
+        assertFalse(queuedWorkflow.allowedActions().editSpecification());
+        assertFalse(queuedWorkflow.allowedActions().cancel());
+        assertFalse(queuedWorkflow.allowedActions().pay());
+    }
+
+    @Test
+    void persistedVerifiedPodPaymentDelegatesToExistingQueueTransition() {
+        var transactionRepo = mock(PaymentTransactionRepository.class);
+        var attemptRepo = mock(PaymentAttemptRepository.class);
+        var production = mock(PrintRequestProductionService.class);
+        var handler = new PrintRequestPaymentFulfillmentService(transactionRepo, attemptRepo,
+                requests, histories, production, JsonMapper.builder().build());
+        var payment = verifiedPodPayment(501, 10, 90, 7);
+        var attempt = verifiedPodAttempt(501);
+        var request = acceptedRequest(10, 7, 90);
+        when(transactionRepo.findById(501)).thenReturn(Optional.of(payment));
+        when(requests.findByIdForUpdate(10)).thenReturn(Optional.of(request));
+        when(attemptRepo.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(501, "ZALOPAY"))
+                .thenReturn(Optional.of(attempt));
+
+        handler.handleVerifiedSuccess(501);
+
+        verify(requests).findByIdForUpdate(10);
+        verify(production).activateAfterVerifiedPayment(10, 90, 501,
+                "POD", "SUCCESS", new BigDecimal("250.00"));
+        verify(transactionRepo, never()).saveAndFlush(any());
+        verify(attemptRepo, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void fulfillmentRejectsWrongOwnerOrRequestAndUnverifiedFinancialState() {
+        var transactionRepo = mock(PaymentTransactionRepository.class);
+        var attemptRepo = mock(PaymentAttemptRepository.class);
+        var production = mock(PrintRequestProductionService.class);
+        var handler = new PrintRequestPaymentFulfillmentService(transactionRepo, attemptRepo,
+                requests, histories, production, JsonMapper.builder().build());
+        var payment = verifiedPodPayment(501, 10, 90, 8);
+        when(transactionRepo.findById(501)).thenReturn(Optional.of(payment));
+        when(requests.findByIdForUpdate(10)).thenReturn(Optional.of(acceptedRequest(10, 7, 90)));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> handler.handleVerifiedSuccess(501)).getStatus());
+        var pending = verifiedPodPayment(502, 10, 90, 7);
+        ReflectionTestUtils.setField(pending, "status", "PENDING");
+        when(transactionRepo.findById(502)).thenReturn(Optional.of(pending));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> handler.handleVerifiedSuccess(502)).getStatus());
+        ReflectionTestUtils.setField(pending, "status", "FAILED");
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> handler.handleVerifiedSuccess(502)).getStatus());
+        var wrongRequest = verifiedPodPayment(503, 10, 90, 7);
+        when(transactionRepo.findById(503)).thenReturn(Optional.of(wrongRequest));
+        when(requests.findByIdForUpdate(10)).thenReturn(Optional.of(acceptedRequest(11, 7, 90)));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> handler.handleVerifiedSuccess(503)).getStatus());
+        verifyNoInteractions(attemptRepo, production);
+    }
+
+    @Test
+    void fulfillmentRejectsFailedAttemptEvenWithTransactionMarkedSuccess() {
+        var transactionRepo = mock(PaymentTransactionRepository.class);
+        var attemptRepo = mock(PaymentAttemptRepository.class);
+        var production = mock(PrintRequestProductionService.class);
+        var handler = new PrintRequestPaymentFulfillmentService(transactionRepo, attemptRepo,
+                requests, histories, production, JsonMapper.builder().build());
+        when(transactionRepo.findById(501))
+                .thenReturn(Optional.of(verifiedPodPayment(501, 10, 90, 7)));
+        when(requests.findByIdForUpdate(10))
+                .thenReturn(Optional.of(acceptedRequest(10, 7, 90)));
+        var failedAttempt = verifiedPodAttempt(501);
+        ReflectionTestUtils.setField(failedAttempt, "attemptStatus", "FAILED");
+        when(attemptRepo.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(501, "ZALOPAY"))
+                .thenReturn(Optional.of(failedAttempt));
+
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> handler.handleVerifiedSuccess(501)).getStatus());
+        verifyNoInteractions(production);
+    }
+
+    @Test
+    void fulfillmentRejectsAttemptWithoutPersistedProviderVerification() {
+        var transactionRepo = mock(PaymentTransactionRepository.class);
+        var attemptRepo = mock(PaymentAttemptRepository.class);
+        var production = mock(PrintRequestProductionService.class);
+        var handler = new PrintRequestPaymentFulfillmentService(transactionRepo, attemptRepo,
+                requests, histories, production, JsonMapper.builder().build());
+        when(transactionRepo.findById(501))
+                .thenReturn(Optional.of(verifiedPodPayment(501, 10, 90, 7)));
+        when(requests.findByIdForUpdate(10))
+                .thenReturn(Optional.of(acceptedRequest(10, 7, 90)));
+        var unverified = verifiedPodAttempt(501);
+        ReflectionTestUtils.setField(unverified, "providerEventSnapshot", null);
+        when(attemptRepo.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(501, "ZALOPAY"))
+                .thenReturn(Optional.of(unverified));
+
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> handler.handleVerifiedSuccess(501)).getStatus());
+        unverified.recordEvent("{\"amount\":249,\"zp_trans_id\":\"provider-transaction\"}");
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> handler.handleVerifiedSuccess(501)).getStatus());
+        verifyNoInteractions(production);
+    }
+
+    @Test
+    void verifiedProviderAmountMayBeANumericJsonString() {
+        var transactionRepo = mock(PaymentTransactionRepository.class);
+        var attemptRepo = mock(PaymentAttemptRepository.class);
+        var production = mock(PrintRequestProductionService.class);
+        var handler = new PrintRequestPaymentFulfillmentService(transactionRepo, attemptRepo,
+                requests, histories, production, JsonMapper.builder().build());
+        when(transactionRepo.findById(501))
+                .thenReturn(Optional.of(verifiedPodPayment(501, 10, 90, 7)));
+        when(requests.findByIdForUpdate(10))
+                .thenReturn(Optional.of(acceptedRequest(10, 7, 90)));
+        var attempt = verifiedPodAttempt(501);
+        attempt.recordEvent("{\"amount\":\"250.00\",\"zp_trans_id\":\"provider-transaction\"}");
+        when(attemptRepo.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(501, "ZALOPAY"))
+                .thenReturn(Optional.of(attempt));
+
+        handler.handleVerifiedSuccess(501);
+
+        verify(production).activateAfterVerifiedPayment(10, 90, 501,
+                "POD", "SUCCESS", new BigDecimal("250.00"));
+    }
+
+    @Test
+    void fulfillmentRejectsLateSuccessAndOtherPaymentReplay() {
+        var transactionRepo = mock(PaymentTransactionRepository.class);
+        var attemptRepo = mock(PaymentAttemptRepository.class);
+        var production = mock(PrintRequestProductionService.class);
+        var handler = new PrintRequestPaymentFulfillmentService(transactionRepo, attemptRepo,
+                requests, histories, production, JsonMapper.builder().build());
+        when(transactionRepo.findById(501))
+                .thenReturn(Optional.of(verifiedPodPayment(501, 10, 90, 7)));
+        when(attemptRepo.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(501, "ZALOPAY"))
+                .thenReturn(Optional.of(verifiedPodAttempt(501)));
+        var request = acceptedRequest(10, 7, 90);
+        request.cancelExpiredQuote("Payment expired", Instant.now());
+        when(requests.findByIdForUpdate(10)).thenReturn(Optional.of(request));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> handler.handleVerifiedSuccess(501)).getStatus());
+
+        var queued = acceptedRequest(10, 7, 90);
+        queued.lockForProduction(Instant.now());
+        when(requests.findByIdForUpdate(10)).thenReturn(Optional.of(queued));
+        when(histories.findByPrintRequestIdOrderByChangedAtAscPrintStatusHistoryIdAsc(10))
+                .thenReturn(List.of(new PrintRequestStatusHistory(10, "QUOTE_ACCEPTED",
+                        "IN_QUEUE", 7, null, "POD_PAYMENT_VERIFIED:10:tx:999")));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
+                () -> handler.handleVerifiedSuccess(501)).getStatus());
+        verifyNoInteractions(production);
+    }
+
+    @Test
+    void sameVerifiedPaymentReplayIsRecognizedByHistory() {
+        var transactionRepo = mock(PaymentTransactionRepository.class);
+        var attemptRepo = mock(PaymentAttemptRepository.class);
+        var production = mock(PrintRequestProductionService.class);
+        var handler = new PrintRequestPaymentFulfillmentService(transactionRepo, attemptRepo,
+                requests, histories, production, JsonMapper.builder().build());
+        when(transactionRepo.findById(501))
+                .thenReturn(Optional.of(verifiedPodPayment(501, 10, 90, 7)));
+        when(attemptRepo.findFirstByTransactionIdAndProviderNameOrderByAttemptNumberDesc(501, "ZALOPAY"))
+                .thenReturn(Optional.of(verifiedPodAttempt(501)));
+        var queued = acceptedRequest(10, 7, 90);
+        queued.lockForProduction(Instant.now());
+        when(requests.findByIdForUpdate(10)).thenReturn(Optional.of(queued));
+        when(histories.findByPrintRequestIdOrderByChangedAtAscPrintStatusHistoryIdAsc(10))
+                .thenReturn(List.of(new PrintRequestStatusHistory(10, "QUOTE_ACCEPTED",
+                        "IN_QUEUE", 7, null, "POD_PAYMENT_VERIFIED:10:tx:501")));
+
+        handler.handleVerifiedSuccess(501);
+
+        verify(production).activateAfterVerifiedPayment(10, 90, 501,
+                "POD", "SUCCESS", new BigDecimal("250.00"));
+    }
+
+    @Test
+    void fulfillmentWorkerContinuesAfterFailureAndRetriesOnNextScan() {
+        var jdbc = mock(JdbcTemplate.class);
+        var handler = mock(PrintRequestPaymentFulfillmentService.class);
+        var worker = new PrintRequestPaymentFulfillmentWorker(jdbc, handler);
+        when(jdbc.queryForList(anyString(), eq(Integer.class), eq(0), eq(100)))
+                .thenReturn(List.of(501, 502));
+        when(handler.handleVerifiedSuccess(501))
+                .thenThrow(new IllegalStateException("temporary database failure"))
+                .thenReturn(mock(com.project.w_3d_world.features.printing.dto.response.PrintRequestStateResponse.class));
+
+        worker.reconcileVerifiedPayments();
+        worker.reconcileVerifiedPayments();
+
+        verify(handler, times(2)).handleVerifiedSuccess(501);
+        verify(handler, times(2)).handleVerifiedSuccess(502);
+    }
+
+    @Test
+    void fulfillmentWorkerScansBoundedPagesWithoutDroppingLaterPayments() {
+        var jdbc = mock(JdbcTemplate.class);
+        var handler = mock(PrintRequestPaymentFulfillmentService.class);
+        var worker = new PrintRequestPaymentFulfillmentWorker(jdbc, handler);
+        List<Integer> firstBatch = java.util.stream.IntStream.rangeClosed(1, 100)
+                .boxed().toList();
+        when(jdbc.queryForList(anyString(), eq(Integer.class), eq(0), eq(100)))
+                .thenReturn(firstBatch);
+        when(jdbc.queryForList(anyString(), eq(Integer.class), eq(100), eq(100)))
+                .thenReturn(List.of(101));
+
+        worker.reconcileVerifiedPayments();
+        worker.reconcileVerifiedPayments();
+
+        verify(handler).handleVerifiedSuccess(1);
+        verify(handler).handleVerifiedSuccess(100);
+        verify(handler).handleVerifiedSuccess(101);
+        verify(handler, times(101)).handleVerifiedSuccess(anyInt());
+        var sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).queryForList(sql.capture(), eq(Integer.class), eq(0), eq(100));
+        assertTrue(sql.getValue().contains("t.status = 'SUCCESS'"));
+        assertTrue(sql.getValue().contains("r.status = 'QUOTE_ACCEPTED'"));
+        assertTrue(sql.getValue().contains("a.verified_at IS NOT NULL"));
+    }
+
+    private static PaymentTransaction verifiedPodPayment(int id, int requestId, int quoteId, int payerId) {
+        var payment = new PaymentTransaction("PRINT_QUOTE", "operation", payerId,
+                "FULL", new BigDecimal("250.00"));
+        payment.setSource("PRINT_REQUEST", requestId);
+        payment.setSource("PRINT_QUOTE", quoteId);
+        payment.markSuccess();
+        payment.fulfillment("RECONCILIATION_REQUIRED");
+        ReflectionTestUtils.setField(payment, "id", id);
+        return payment;
+    }
+
+    private static PaymentAttempt verifiedPodAttempt(int transactionId) {
+        var attempt = new PaymentAttempt(transactionId, "attempt", "ZALOPAY");
+        attempt.reference("provider-reference");
+        attempt.providerTransaction("provider-transaction");
+        attempt.recordEvent("{\"amount\":250,\"zp_trans_id\":\"provider-transaction\","
+                + "\"app_trans_id\":\"provider-reference\"}");
+        attempt.success();
+        return attempt;
+    }
+
+    private static PrintRequest acceptedRequest(int requestId, int customerId, int quoteId) {
+        var request = request(requestId, customerId);
+        request.useFileVersion(2);
+        request.useSpecVersion(1);
+        request.submit();
+        request.markQuoted(quoteId, 9, Instant.now());
+        request.markQuoteAccepted(quoteId, Instant.now());
+        return request;
     }
 
     @Test

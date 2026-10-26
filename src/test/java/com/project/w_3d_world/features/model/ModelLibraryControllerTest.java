@@ -69,7 +69,7 @@ class ModelLibraryControllerTest {
 
     @Test
     void mvc01_myLibraryUsesJwtOwnerAndApiResponse() throws Exception {
-        mvc.perform(get("/api/models/my").header("Authorization", token))
+        mvc.perform(get("/api/models/getAll").header("Authorization", token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.message").value("Models retrieved successfully"))
                 .andExpect(jsonPath("$.data.content[0].modelId").value(11))
@@ -80,13 +80,13 @@ class ModelLibraryControllerTest {
 
     @Test
     void mvc02_missingJwt401() throws Exception {
-        mvc.perform(get("/api/models/my")).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.status").value(401));
+        mvc.perform(get("/api/models/getAll")).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.status").value(401));
         verifyNoInteractions(service);
     }
 
     @Test
     void mvc03_invalidJwt401() throws Exception {
-        mvc.perform(get("/api/models/my").header("Authorization", "Bearer invalid"))
+        mvc.perform(get("/api/models/getAll").header("Authorization", "Bearer invalid"))
                 .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.status").value(401));
         verifyNoInteractions(service);
     }
@@ -95,7 +95,7 @@ class ModelLibraryControllerTest {
     void validJwtWithRevokedSessionIsRejected() throws Exception {
         doThrow(com.project.w_3d_world.common.exception.ApiException.invalidSession())
                 .when(sessionService).validateSession(eq(7), any(java.util.UUID.class), any(java.time.Instant.class));
-        mvc.perform(get("/api/models/my").header("Authorization", token))
+        mvc.perform(get("/api/models/getAll").header("Authorization", token))
                 .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.status").value(401));
         verify(sessionService).validateSession(eq(7), any(java.util.UUID.class), any(java.time.Instant.class));
         verifyNoInteractions(service);
@@ -110,14 +110,14 @@ class ModelLibraryControllerTest {
                 .andExpect(jsonPath("$.data.ownerUserId").doesNotExist())
                 .andExpect(jsonPath("$.data.storageKey").doesNotExist());
         verify(service).getModelDetails(7, 11);
-        mvc.perform(get("/api/models/my").header("Authorization", token)).andExpect(status().isOk());
+        mvc.perform(get("/api/models/getAll").header("Authorization", token)).andExpect(status().isOk());
     }
 
     @Test
     void mvc06_mvc07_invalidPaging400() throws Exception {
         for (String[] query : List.of(new String[]{"page", "-1"}, new String[]{"size", "0"},
                 new String[]{"size", "51"}, new String[]{"page", "nope"}, new String[]{"size", "nope"})) {
-            mvc.perform(get("/api/models/my").param(query[0], query[1]).header("Authorization", token))
+            mvc.perform(get("/api/models/getAll").param(query[0], query[1]).header("Authorization", token))
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
         }
         verifyNoInteractions(service);
@@ -138,7 +138,7 @@ class ModelLibraryControllerTest {
     @Test
     void mvc08_emptyLibrary200() throws Exception {
         when(service.getMyModels(7, 0, 20)).thenReturn(new PagedModelResponse(List.of(), 0, 20, 0, 0));
-        mvc.perform(get("/api/models/my").header("Authorization", token))
+        mvc.perform(get("/api/models/getAll").header("Authorization", token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.content").isEmpty())
                 .andExpect(jsonPath("$.data.totalElements").value(0)).andExpect(jsonPath("$.data.totalPages").value(0));
     }
@@ -154,7 +154,7 @@ class ModelLibraryControllerTest {
     void mvc10_existingUploadRouteStillReturns201() throws Exception {
         when(uploadService.uploadModel(anyInt(), any(), any())).thenReturn(
                 new ModelUploadResponse(1, 2, 3, "Dragon", 1, "glb", 48L, "PRIVATE", Instant.now()));
-        mvc.perform(multipart("/api/models/uploads")
+        mvc.perform(multipart("/api/models/create")
                         .file(new org.springframework.mock.web.MockMultipartFile("metadata", "metadata.json", "application/json",
                                 "{\"modelName\":\"Dragon\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
                         .file(new org.springframework.mock.web.MockMultipartFile("file", "model.glb", "model/gltf-binary", new byte[]{1}))
@@ -167,7 +167,7 @@ class ModelLibraryControllerTest {
 
     @Test
     void clientOwnerAndSortCannotOverrideIdentityOrOrdering() throws Exception {
-        mvc.perform(get("/api/models/my").param("ownerUserId", "999").param("sort", "modelName,asc")
+        mvc.perform(get("/api/models/getAll").param("ownerUserId", "999").param("sort", "modelName,asc")
                         .param("page", "2").param("size", "50").header("ownerUserId", "999")
                         .header("Authorization", token))
                 .andExpect(status().isOk()).andExpect(handler().methodName("getMyModels"));
@@ -178,7 +178,7 @@ class ModelLibraryControllerTest {
     void databaseFailuresHaveControlled500WithoutInternalDetails() throws Exception {
         when(service.getMyModels(anyInt(), anyInt(), anyInt())).thenThrow(
                 new org.springframework.dao.DataAccessResourceFailureException("secret connection details"));
-        var response = mvc.perform(get("/api/models/my").header("Authorization", token))
+        var response = mvc.perform(get("/api/models/getAll").header("Authorization", token))
                 .andExpect(status().isInternalServerError()).andExpect(jsonPath("$.status").value(500)).andReturn();
         assertFalse(response.getResponse().getContentAsString().contains("secret"));
     }

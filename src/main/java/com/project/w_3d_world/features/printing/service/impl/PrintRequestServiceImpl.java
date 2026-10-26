@@ -14,6 +14,7 @@ import com.project.w_3d_world.features.printing.dto.request.CreatePrintRequestRe
 import com.project.w_3d_world.features.printing.dto.response.PagedPrintRequestResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestItemResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestResponse;
+import com.project.w_3d_world.features.printing.dto.response.PrintProductionSummaryResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestSummaryResponse;
 import com.project.w_3d_world.features.printing.entity.PrintRequest;
 import com.project.w_3d_world.features.printing.entity.PrintRequestItem;
@@ -160,7 +161,8 @@ public class PrintRequestServiceImpl implements PrintRequestService {
                 .stream().map(PrintRequestServiceImpl::toItem).toList();
         return new PrintRequestResponse(request.getPrintRequestId(), request.getStatus(),
                 request.getCustomerNotes(), request.getCreatedAt(), request.getUpdatedAt(),
-                request.getLockedAt(), items);
+                request.getLockedAt(), items).withProduction(PrintProductionSummaryResponse
+                        .fromStatuses(items.stream().map(PrintRequestItemResponse::productionStatus).toList()));
     }
 
     private static PrintRequestSummaryResponse toSummary(PrintRequest request) {

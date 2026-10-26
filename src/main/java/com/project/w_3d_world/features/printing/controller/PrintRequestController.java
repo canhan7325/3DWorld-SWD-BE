@@ -11,6 +11,8 @@ import com.project.w_3d_world.features.printing.dto.request.ConfirmPrintRequestP
 import com.project.w_3d_world.features.printing.dto.request.CancelPrintRequestRequest;
 import com.project.w_3d_world.features.printing.dto.request.RequestPrintQuoteRevisionRequest;
 import com.project.w_3d_world.features.printing.dto.request.SubmitPrintRequestRequest;
+import com.project.w_3d_world.features.printing.dto.request.SelectPrintRequestShippingAddressRequest;
+import com.project.w_3d_world.features.printing.dto.response.PrintRequestShippingAddressResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestSpecVersionResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestStateResponse;
 import com.project.w_3d_world.features.printing.dto.response.PrintRequestStatusHistoryResponse;
@@ -22,7 +24,10 @@ import com.project.w_3d_world.features.printing.service.impl.PrintRequestQuoteSe
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestSpecificationService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestStateService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestWorkflowService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestShippingAddressService;
+import com.project.w_3d_world.features.printing.service.impl.PrintRequestShippingReadinessService;
 import com.project.w_3d_world.features.printing.validation.PrintRequestValidation;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -62,8 +67,11 @@ public class PrintRequestController {
     private final PrintRequestStateService stateService;
     private final PrintRequestQuoteService quoteService;
     private final PrintRequestWorkflowService workflowService;
+    private final PrintRequestShippingAddressService shippingAddressService;
+    private final PrintRequestShippingReadinessService shippingReadinessService;
 
     @PostMapping(value = "/create", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Tạo bản nháp yêu cầu in từ tệp và vật liệu")
     public ResponseEntity<ApiResponse<PrintRequestResponse>> create(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @RequestParam Integer materialId,
@@ -77,6 +85,7 @@ public class PrintRequestController {
     }
 
     @GetMapping("/getAll")
+    @Operation(summary = "Lấy danh sách yêu cầu in của khách hàng")
     public ApiResponse<PagedPrintRequestResponse> getAll(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @RequestParam(defaultValue = "0") String page,
@@ -87,16 +96,30 @@ public class PrintRequestController {
     }
 
     @GetMapping("/getId/{printRequestId}")
+    @Operation(summary = "Lấy chi tiết yêu cầu in theo ID")
     public ApiResponse<PrintRequestResponse> getById(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId) {
         int customerId = PrintRequestValidation.requireCustomerId(customer);
         int requestId = PrintRequestValidation.parsePrintRequestId(printRequestId);
         return ApiResponse.success(service.getMyRequestById(customerId, requestId)
-                .withWorkflow(workflowService.forCustomer(customerId, requestId)));
+                .withWorkflow(workflowService.forCustomer(customerId, requestId))
+                .withShipping(shippingReadinessService.forCustomer(customerId, requestId)));
+    }
+
+    @PatchMapping("/getId/{printRequestId}/updateShippingAddress")
+    @Operation(summary = "Cập nhật địa chỉ giao hàng của yêu cầu in")
+    public ApiResponse<PrintRequestShippingAddressResponse> selectShippingAddress(
+            @AuthenticationPrincipal AuthenticatedUser customer,
+            @PathVariable String printRequestId,
+            @Valid @RequestBody SelectPrintRequestShippingAddressRequest body) {
+        return ApiResponse.success(shippingAddressService.select(
+                PrintRequestValidation.requireCustomerId(customer),
+                PrintRequestValidation.parsePrintRequestId(printRequestId), body.addressId()));
     }
 
     @GetMapping("/getId/{printRequestId}/file")
+    @Operation(summary = "Tải tệp in hiện tại của yêu cầu in")
     public void downloadFile(@AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId, HttpServletResponse response) throws IOException {
         int customerId = PrintRequestValidation.requireCustomerId(customer);
@@ -111,8 +134,9 @@ public class PrintRequestController {
         }
     }
 
-    @PostMapping(value = "/getId/{printRequestId}/file/correct",
+    @PostMapping(value = "/getId/{printRequestId}/file/versions/create",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Tạo phiên bản tệp in mới để chỉnh sửa yêu cầu")
     public ResponseEntity<ApiResponse<PrintRequestFileVersionResponse>> correctFile(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId,
@@ -125,7 +149,8 @@ public class PrintRequestController {
                 .body(ApiResponse.created("Print Request file version created successfully", created));
     }
 
-    @GetMapping("/getId/{printRequestId}/file/versions")
+    @GetMapping("/getId/{printRequestId}/file/versions/getAll")
+    @Operation(summary = "Lấy danh sách phiên bản tệp in")
     public ApiResponse<List<PrintRequestFileVersionResponse>> fileVersions(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId) {
@@ -135,6 +160,7 @@ public class PrintRequestController {
     }
 
     @GetMapping("/getId/{printRequestId}/file/versions/{version}/download")
+    @Operation(summary = "Tải một phiên bản tệp in theo số phiên bản")
     public void downloadFileVersion(@AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId, @PathVariable String version,
             HttpServletResponse response) throws IOException {
@@ -151,7 +177,8 @@ public class PrintRequestController {
         }
     }
 
-    @PatchMapping("/getId/{printRequestId}/specifications")
+    @PatchMapping("/getId/{printRequestId}/updateSpecification")
+    @Operation(summary = "Cập nhật thông số in và tạo phiên bản thông số mới")
     public ApiResponse<PrintRequestSpecVersionResponse> updateSpecification(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId,
@@ -161,7 +188,8 @@ public class PrintRequestController {
                 PrintRequestValidation.parsePrintRequestId(printRequestId), body));
     }
 
-    @GetMapping("/getId/{printRequestId}/specifications/versions")
+    @GetMapping("/getId/{printRequestId}/specifications/versions/getAll")
+    @Operation(summary = "Lấy danh sách phiên bản thông số in")
     public ApiResponse<List<PrintRequestSpecVersionResponse>> specificationVersions(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId) {
@@ -171,6 +199,7 @@ public class PrintRequestController {
     }
 
     @PostMapping("/getId/{printRequestId}/preview/confirm")
+    @Operation(summary = "Xác nhận xem trước tệp và thông số in hiện tại")
     public ApiResponse<PrintRequestStateResponse> confirmPreview(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId,
@@ -181,6 +210,7 @@ public class PrintRequestController {
     }
 
     @PostMapping("/getId/{printRequestId}/submit")
+    @Operation(summary = "Gửi yêu cầu in để nhân viên thẩm định")
     public ApiResponse<PrintRequestStateResponse> submit(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId,
@@ -191,6 +221,7 @@ public class PrintRequestController {
     }
 
     @PostMapping("/getId/{printRequestId}/cancel")
+    @Operation(summary = "Hủy yêu cầu in chưa bị khóa")
     public ApiResponse<PrintRequestStateResponse> cancel(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId,
@@ -200,7 +231,8 @@ public class PrintRequestController {
                 PrintRequestValidation.parsePrintRequestId(printRequestId), body));
     }
 
-    @GetMapping("/getId/{printRequestId}/status-history")
+    @GetMapping("/getId/{printRequestId}/status-history/getAll")
+    @Operation(summary = "Lấy lịch sử trạng thái của yêu cầu in")
     public ApiResponse<List<PrintRequestStatusHistoryResponse>> statusHistory(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId) {
@@ -209,7 +241,8 @@ public class PrintRequestController {
                 PrintRequestValidation.parsePrintRequestId(printRequestId)));
     }
 
-    @GetMapping("/getId/{printRequestId}/quotes")
+    @GetMapping("/getId/{printRequestId}/quotes/getAll")
+    @Operation(summary = "Lấy danh sách báo giá của yêu cầu in")
     public ApiResponse<List<PrintQuoteResponse>> quotes(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId) {
@@ -219,6 +252,7 @@ public class PrintRequestController {
     }
 
     @PostMapping("/getId/{printRequestId}/quotes/{quoteId}/accept")
+    @Operation(summary = "Chấp nhận báo giá hiện tại của yêu cầu in")
     public ApiResponse<PrintQuoteResponse> acceptQuote(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId,
@@ -231,6 +265,7 @@ public class PrintRequestController {
     }
 
     @PostMapping("/getId/{printRequestId}/quotes/{quoteId}/request-revision")
+    @Operation(summary = "Yêu cầu nhân viên sửa báo giá")
     public ApiResponse<PrintQuoteResponse> requestQuoteRevision(
             @AuthenticationPrincipal AuthenticatedUser customer,
             @PathVariable String printRequestId,

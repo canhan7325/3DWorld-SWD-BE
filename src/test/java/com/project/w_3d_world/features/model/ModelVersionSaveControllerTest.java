@@ -76,7 +76,7 @@ class ModelVersionSaveControllerTest {
                         "Updated model geometry", Instant.parse("2026-10-23T14:30:00Z"),
                         new SavedModelFileResponse(89, "model-15-file-89.stl", "stl", 4L,
                                 "/api/models/15/files/89/download")));
-        var result = mvc.perform(multipart("/api/models/15/versions/save")
+        var result = mvc.perform(multipart("/api/models/15/versions/create")
                         .file(metadata("{\"baseVersionId\":41,\"changeNote\":\"Updated model geometry\"}"))
                         .file(file()).header("Authorization", token)
                         .param("ownerUserId", "999"))
@@ -100,15 +100,15 @@ class ModelVersionSaveControllerTest {
 
     @Test
     void missingInvalidAndRevokedSessionsCannotSave() throws Exception {
-        mvc.perform(multipart("/api/models/15/versions/save").file(metadata("{\"baseVersionId\":41}"))
+        mvc.perform(multipart("/api/models/15/versions/create").file(metadata("{\"baseVersionId\":41}"))
                         .file(file()))
                 .andExpect(status().isUnauthorized());
-        mvc.perform(multipart("/api/models/15/versions/save").file(metadata("{\"baseVersionId\":41}"))
+        mvc.perform(multipart("/api/models/15/versions/create").file(metadata("{\"baseVersionId\":41}"))
                         .file(file()).header("Authorization", "Bearer invalid"))
                 .andExpect(status().isUnauthorized());
         doThrow(ApiException.invalidSession()).when(sessions)
                 .validateSession(eq(7), any(UUID.class), any(Instant.class));
-        mvc.perform(multipart("/api/models/15/versions/save").file(metadata("{\"baseVersionId\":41}"))
+        mvc.perform(multipart("/api/models/15/versions/create").file(metadata("{\"baseVersionId\":41}"))
                         .file(file()).header("Authorization", token))
                 .andExpect(status().isUnauthorized());
         verifyNoInteractions(service);
@@ -118,17 +118,17 @@ class ModelVersionSaveControllerTest {
     void invalidMetadataAndMissingPartsAreRejectedBeforeService() throws Exception {
         for (String json : new String[]{"{\"baseVersionId\":0}", "{\"baseVersionId\":-1}",
                 "{\"changeNote\":\"missing base\"}", "{bad}"}) {
-            mvc.perform(multipart("/api/models/15/versions/save").file(metadata(json))
+            mvc.perform(multipart("/api/models/15/versions/create").file(metadata(json))
                             .file(file()).header("Authorization", token))
                     .andExpect(status().isBadRequest());
         }
-        mvc.perform(multipart("/api/models/15/versions/save").file(file())
+        mvc.perform(multipart("/api/models/15/versions/create").file(file())
                         .header("Authorization", token))
                 .andExpect(status().isBadRequest());
-        mvc.perform(multipart("/api/models/15/versions/save").file(metadata("{\"baseVersionId\":41}"))
+        mvc.perform(multipart("/api/models/15/versions/create").file(metadata("{\"baseVersionId\":41}"))
                         .header("Authorization", token))
                 .andExpect(status().isBadRequest());
-        mvc.perform(multipart("/api/models/not-a-number/versions/save")
+        mvc.perform(multipart("/api/models/not-a-number/versions/create")
                         .file(metadata("{\"baseVersionId\":41}")).file(file())
                         .header("Authorization", token))
                 .andExpect(status().isBadRequest());
@@ -139,7 +139,7 @@ class ModelVersionSaveControllerTest {
     void staleAndInaccessibleModelsKeepTheirServiceStatus() throws Exception {
         when(service.saveVersion(eq(7), eq(15), any(), any()))
                 .thenThrow(new ApiException(HttpStatus.CONFLICT, "The base Model Version is stale."));
-        mvc.perform(multipart("/api/models/15/versions/save")
+        mvc.perform(multipart("/api/models/15/versions/create")
                         .file(metadata("{\"baseVersionId\":41}")).file(file())
                         .header("Authorization", token))
                 .andExpect(status().isConflict())
@@ -147,7 +147,7 @@ class ModelVersionSaveControllerTest {
         reset(service);
         when(service.saveVersion(eq(7), eq(15), any(), any()))
                 .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "Model or version was not found."));
-        mvc.perform(multipart("/api/models/15/versions/save")
+        mvc.perform(multipart("/api/models/15/versions/create")
                         .file(metadata("{\"baseVersionId\":41}")).file(file())
                         .header("Authorization", token))
                 .andExpect(status().isNotFound())

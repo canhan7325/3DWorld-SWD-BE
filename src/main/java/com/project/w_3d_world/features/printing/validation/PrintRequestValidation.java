@@ -52,6 +52,12 @@ public final class PrintRequestValidation {
         return id;
     }
 
+    public static int parseItemId(String value) {
+        int id = parseInteger(value, "itemId");
+        if (id <= 0) throw ApiException.invalidRequest("itemId must be a positive integer.");
+        return id;
+    }
+
     public static void validateCustomerId(Integer customerUserId) {
         if (customerUserId == null || customerUserId <= 0) {
             throw ApiException.invalidRequest("Authenticated customer ID is invalid.");

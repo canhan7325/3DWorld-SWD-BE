@@ -92,6 +92,15 @@ public class PrintRequest {
         this.copyrightConfirmed = true;
     }
 
+    public void selectShippingAddress(Integer addressId, String snapshot) {
+        if (addressId == null || addressId <= 0 || snapshot == null || snapshot.isBlank()) {
+            throw new IllegalArgumentException("An owned shipping address snapshot is required.");
+        }
+        this.shippingAddressId = addressId;
+        this.shippingAddressSnapshot = snapshot;
+        this.updatedAt = Instant.now();
+    }
+
     public void confirmPreview() {
         this.previewConfirmed = true;
         this.updatedAt = Instant.now();
@@ -118,9 +127,20 @@ public class PrintRequest {
         Instant now = issuedAt == null ? Instant.now() : issuedAt;
         this.currentQuoteId = quoteId;
         this.status = "QUOTED";
-        this.handledByUserId = staffUserId;
-        this.handledAt = now;
+        if (this.handledByUserId == null) {
+            this.handledByUserId = staffUserId;
+            this.handledAt = now;
+        }
         this.updatedAt = now;
+    }
+
+    public void claimReview(Integer staffUserId, Instant claimedAt) {
+        if (staffUserId == null || staffUserId <= 0 || claimedAt == null) {
+            throw new IllegalArgumentException("Staff ID and claim time are required.");
+        }
+        this.handledByUserId = staffUserId;
+        this.handledAt = claimedAt;
+        this.updatedAt = claimedAt;
     }
 
     public void markQuoteAccepted(Integer quoteId, Instant acceptedAt) {

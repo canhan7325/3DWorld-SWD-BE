@@ -218,23 +218,26 @@ class PrintRequestMappingTest {
         assertTrue(Repository.class.isAssignableFrom(PrintQuoteItemRepository.class));
         assertEquals(Set.of("findByCustomerUserId", "findByPrintRequestIdAndCustomerUserId",
                         "findOwnedByIdForUpdate", "findById", "findByIdForUpdate",
-                        "findUnacceptedQuoteExpirationCandidates", "saveAndFlush"),
+                        "findUnacceptedQuoteExpirationCandidates", "findStaffReviewQueue",
+                        "findProductionBoard",
+                        "saveAndFlush"),
                 methodNames(PrintRequestRepository.class));
-        assertEquals(Set.of("findByPrintRequestIdOrderByPrintRequestItemIdAsc", "saveAndFlush"),
+        assertEquals(Set.of("findByPrintRequestIdOrderByPrintRequestItemIdAsc",
+                        "findByPrintRequestIdInOrderByPrintRequestIdAscPrintRequestItemIdAsc", "saveAndFlush"),
                 methodNames(PrintRequestItemRepository.class));
         assertEquals("/api/print/requests", PrintRequestController.class
                 .getAnnotation(RequestMapping.class).value()[0]);
         assertEquals(Set.of("/getAll", "/getId/{printRequestId}", "/getId/{printRequestId}/file",
-                        "/getId/{printRequestId}/file/versions",
+                        "/getId/{printRequestId}/file/versions/getAll",
                         "/getId/{printRequestId}/file/versions/{version}/download",
-                        "/getId/{printRequestId}/specifications/versions",
-                        "/getId/{printRequestId}/status-history",
-                        "/getId/{printRequestId}/quotes"),
+                        "/getId/{printRequestId}/specifications/versions/getAll",
+                        "/getId/{printRequestId}/status-history/getAll",
+                        "/getId/{printRequestId}/quotes/getAll"),
                 Arrays.stream(PrintRequestController.class.getDeclaredMethods())
                         .filter(method -> method.isAnnotationPresent(GetMapping.class))
                         .map(method -> method.getAnnotation(GetMapping.class).value()[0])
                         .collect(Collectors.toSet()));
-        assertEquals(Set.of("/create", "/getId/{printRequestId}/file/correct",
+        assertEquals(Set.of("/create", "/getId/{printRequestId}/file/versions/create",
                         "/getId/{printRequestId}/preview/confirm",
                         "/getId/{printRequestId}/submit",
                         "/getId/{printRequestId}/cancel",
@@ -244,12 +247,13 @@ class PrintRequestMappingTest {
                         .filter(method -> method.isAnnotationPresent(PostMapping.class))
                         .map(method -> method.getAnnotation(PostMapping.class).value()[0])
                         .collect(Collectors.toSet()));
-        assertEquals(Set.of("/getId/{printRequestId}/specifications"),
+        assertEquals(Set.of("/getId/{printRequestId}/updateSpecification",
+                        "/getId/{printRequestId}/updateShippingAddress"),
                 Arrays.stream(PrintRequestController.class.getDeclaredMethods())
                         .filter(method -> method.isAnnotationPresent(PatchMapping.class))
                         .map(method -> method.getAnnotation(PatchMapping.class).value()[0])
                         .collect(Collectors.toSet()));
-        assertEquals(16, Arrays.stream(PrintRequestController.class.getDeclaredMethods())
+        assertEquals(17, Arrays.stream(PrintRequestController.class.getDeclaredMethods())
                 .filter(method -> method.isAnnotationPresent(GetMapping.class)
                         || method.isAnnotationPresent(PostMapping.class)
                         || method.isAnnotationPresent(PatchMapping.class)).count());

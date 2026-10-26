@@ -52,7 +52,7 @@ class DevelopmentCorsTest {
     @Test
     void arbitraryOriginPreflightSucceedsWithoutJwt() throws Exception {
         MockMvc mvc = webAppContextSetup(context).apply(springSecurity()).build();
-        mvc.perform(options("/api/models/uploads")
+        mvc.perform(options("/api/models/create")
                         .header("Origin", "https://frontend.example.invalid")
                         .header("Access-Control-Request-Method", "POST")
                         .header("Access-Control-Request-Headers", "authorization,content-type"))
@@ -66,7 +66,7 @@ class DevelopmentCorsTest {
     void actualUploadStillRequiresJwtAndValidJwtReachesController() throws Exception {
         reset(uploads);
         MockMvc mvc = webAppContextSetup(context).apply(springSecurity()).build();
-        mvc.perform(multipart("/api/models/uploads").file(file())
+        mvc.perform(multipart("/api/models/create").file(file())
                         .header("Origin", "https://frontend.example.invalid"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string("Access-Control-Allow-Origin", "https://frontend.example.invalid"));
@@ -75,7 +75,7 @@ class DevelopmentCorsTest {
         when(uploads.uploadModel(anyInt(), any(), any())).thenReturn(
                 new ModelUploadResponse(1, 2, 3, "shape", 1, "stl", 12L, "PRIVATE", null));
         String token = jwt.generateToken(7, Set.of("CUSTOMER"), "", "test@example.invalid").getTokenValue();
-        mvc.perform(multipart("/api/models/uploads").file(file())
+        mvc.perform(multipart("/api/models/create").file(file())
                         .header("Origin", "https://frontend.example.invalid")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isCreated())

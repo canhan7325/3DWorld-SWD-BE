@@ -53,50 +53,50 @@ class ModelVersionHistoryControllerTest {
                 101, 10, 1, ModelSourceType.UPLOAD, null, null, Instant.now(), List.of(new ModelFileInfoResponse(301, ModelFileRole.SOURCE_MODEL, "glb", 20L, true))));
     }
     @Test void mvc01_history200AndResponseSafe() throws Exception {
-        mvc.perform(get("/api/models/getId/10/versions").header("Authorization", token))
+        mvc.perform(get("/api/models/getId/10/versions/getAll").header("Authorization", token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.data.content[0].modelVersionId").value(101))
                 .andExpect(jsonPath("$.data.content[0].storageKey").doesNotExist());
         verify(service).getModelVersions(7, 10, 0, 20);
     }
     @Test void mvc02_details200AndNoSensitiveFields() throws Exception {
-        var result = mvc.perform(get("/api/models/10/versions/101").header("Authorization", token))
+        var result = mvc.perform(get("/api/models/getId/10/versions/getId/101").header("Authorization", token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.modelId").value(10))
                 .andExpect(jsonPath("$.data.files[0].fileId").value(301))
                 .andExpect(jsonPath("$.data.files[0].storageKey").doesNotExist()).andReturn();
         assertFalse(result.getResponse().getContentAsString().contains("hash")); verify(service).getModelVersionDetails(7, 10, 101);
     }
     @Test void mvc03_mvc04_missingAndInvalidJwt401() throws Exception {
-        mvc.perform(get("/api/models/getId/10/versions")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/models/getId/10/versions").header("Authorization", "Bearer invalid")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/models/getId/10/versions/getAll")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/models/getId/10/versions/getAll").header("Authorization", "Bearer invalid")).andExpect(status().isUnauthorized());
         verifyNoInteractions(service);
     }
     @Test void mvc08_mvc09_invalidParams400() throws Exception {
-        mvc.perform(get("/api/models/getId/-1/versions").header("Authorization", token))
+        mvc.perform(get("/api/models/getId/-1/versions/getAll").header("Authorization", token))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
-        mvc.perform(get("/api/models/getId/10/versions").param("page", "-1")
+        mvc.perform(get("/api/models/getId/10/versions/getAll").param("page", "-1")
                         .header("Authorization", token))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
-        mvc.perform(get("/api/models/getId/10/versions").param("size", "51")
+        mvc.perform(get("/api/models/getId/10/versions/getAll").param("size", "51")
                         .header("Authorization", token))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
-        mvc.perform(get("/api/models/10/versions/0").header("Authorization", token))
+        mvc.perform(get("/api/models/getId/10/versions/getId/0").header("Authorization", token))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
-        mvc.perform(get("/api/models/getId/nope/versions").header("Authorization", token))
+        mvc.perform(get("/api/models/getId/nope/versions/getAll").header("Authorization", token))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
         verifyNoInteractions(service);
     }
     @Test void mvc10_mvc11_emptyHistoryAndNoFiles200() throws Exception {
         when(service.getModelVersions(7, 10, 0, 20)).thenReturn(new PagedModelVersionsResponse(List.of(), 0, 20, 0, 0));
         when(service.getModelVersionDetails(7, 10, 101)).thenReturn(new ModelVersionDetailResponse(101, 10, 1, ModelSourceType.UPLOAD, null, null, Instant.now(), List.of()));
-        mvc.perform(get("/api/models/getId/10/versions").header("Authorization", token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.content").isEmpty());
-        mvc.perform(get("/api/models/10/versions/101").header("Authorization", token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.files").isEmpty());
+        mvc.perform(get("/api/models/getId/10/versions/getAll").header("Authorization", token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.content").isEmpty());
+        mvc.perform(get("/api/models/getId/10/versions/getId/101").header("Authorization", token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.files").isEmpty());
         verify(service).getModelVersions(7, 10, 0, 20);
         verify(service).getModelVersionDetails(7, 10, 101);
     }
     @Test void mvc05_mvc06_notFoundDoesNotDiscloseOwnership() throws Exception {
         when(service.getModelVersions(7, 99, 0, 20)).thenThrow(new com.project.w_3d_world.common.exception.ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "Model or version was not found."));
-        var result = mvc.perform(get("/api/models/getId/99/versions").header("Authorization", token))
+        var result = mvc.perform(get("/api/models/getId/99/versions/getAll").header("Authorization", token))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.message").value("Model or version was not found."))
                 .andExpect(handler().handlerType(ModelVersionHistoryController.class)).andReturn();
@@ -105,7 +105,7 @@ class ModelVersionHistoryControllerTest {
     }
     @Test void mvc14_mvc15_existingRoutesStillResolve() throws Exception {
         when(library.getMyModels(7, 0, 20)).thenReturn(new com.project.w_3d_world.features.model.dto.response.PagedModelResponse(List.of(), 0, 20, 0, 0));
-        mvc.perform(get("/api/models/my").header("Authorization", token)).andExpect(status().isOk()).andExpect(handler().handlerType(ModelLibraryController.class));
+        mvc.perform(get("/api/models/getAll").header("Authorization", token)).andExpect(status().isOk()).andExpect(handler().handlerType(ModelLibraryController.class));
         when(library.getModelDetails(7, 10)).thenReturn(new ModelDetailResponse(
                 10, "Dragon", "desc", ModelType.WEB_EDITOR, ModelOriginType.UPLOAD, "PRIVATE",
                 new LatestModelVersionResponse(101, 1, ModelSourceType.UPLOAD), Instant.now(), null));

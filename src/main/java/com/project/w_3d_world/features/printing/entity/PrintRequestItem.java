@@ -103,4 +103,18 @@ public class PrintRequestItem {
     public void queueForProduction() {
         this.productionStatus = "QUEUED";
     }
+
+    public void startPrinting() {
+        if (!"QUEUED".equals(productionStatus)) {
+            throw new IllegalStateException("Only a queued item can start printing.");
+        }
+        this.productionStatus = "PRINTING";
+    }
+
+    public void completePrinting() {
+        if (!"PRINTING".equals(productionStatus)) {
+            throw new IllegalStateException("Only a printing item can be completed.");
+        }
+        this.productionStatus = "COMPLETED";
+    }
 }
