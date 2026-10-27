@@ -34,6 +34,7 @@ public class CodPaymentService {
     private final AccountAuthorization authorization;
     private final AuditLogRepository audit;
     private final ObjectMapper mapper;
+    private final com.project.w_3d_world.features.wallet.service.CommissionWalletService wallet;
 
     @Transactional
     public void create(PhysicalOrder order) {
@@ -121,6 +122,7 @@ public class CodPaymentService {
         attempt.settleCod(request.occurredAt(), request.reference().trim(), request.evidenceKey(), actor, request.reason());
         payment.markSuccess();
         payment.fulfillment("SETTLED");
+        wallet.postPending(orderId, request.occurredAt());
         record(attempt, actor, "settlement", request);
         audit.save(new AuditLog(actor, "COD_SETTLED", "PHYSICAL_ORDER", orderId, request.reason(),
                 JsonValues.write(Map.of("amount", request.amount(), "reference", request.reference(), "evidenceKey", request.evidenceKey()))));

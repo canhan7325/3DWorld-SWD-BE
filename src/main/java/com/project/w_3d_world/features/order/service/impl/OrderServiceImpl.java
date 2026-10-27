@@ -53,6 +53,8 @@ public class OrderServiceImpl implements OrderService {
     private final UserAddressRepository addresses;
     private final ShippingQuoteService shippingQuotes;
     private final CodPaymentService cod;
+    private final com.project.w_3d_world.features.wallet.service.PlatformConfigService platformConfig;
+    private final com.project.w_3d_world.features.wallet.service.CommissionWalletService wallet;
 
     @Value("${app.order.reservation-ttl-minutes:15}")
     private long reservationTtlMinutes;
@@ -138,6 +140,11 @@ public class OrderServiceImpl implements OrderService {
             throw new IllegalStateException("Invalid checkout policy configuration.");
         }
         UUID checkoutGroup = UUID.randomUUID();
+        BigDecimal appliedCommissionRate = platformConfig.decimal(
+                com.project.w_3d_world.features.wallet.service.PlatformConfigService.COMMISSION_RATE, new BigDecimal("0.05"));
+        if (appliedCommissionRate.signum() < 0 || appliedCommissionRate.compareTo(BigDecimal.ONE) > 0) {
+            throw new IllegalStateException("Invalid commission rate configuration.");
+        }
         boolean codCheckout = "COD".equals(request.paymentMethod());
         Instant expiry = Instant.now().plusSeconds((codCheckout ? codAcceptanceTtlMinutes : reservationTtlMinutes) * 60);
         List<OrderResponse> result = new ArrayList<>();
@@ -151,7 +158,7 @@ public class OrderServiceImpl implements OrderService {
                             ? quotedShops.get(entry.getKey()).selected().shippingFee() : shippingFee);
             order.setShippingAddressId(address.getId());
             order.initializeCheckout(request.idempotencyKey(), fingerprint, expiry,
-                    commissionRate, refundHours, autoConfirmHours);
+                    appliedCommissionRate, refundHours, autoConfirmHours);
             if (codCheckout) order.selectCod();
             orders.saveAndFlush(order);
             if (codCheckout) {
@@ -308,6 +315,8 @@ public class OrderServiceImpl implements OrderService {
         }
         order.confirmReceived();
         history.save(new OrderStatusHistory(orderId, "DELIVERED", "RECEIVED", userId, "Buyer confirmed receipt"));
+        wallet.received(orderId, order.getReceivedAt());
+        wallet.releaseEligible(orderId);
         return response(order);
     }
 
