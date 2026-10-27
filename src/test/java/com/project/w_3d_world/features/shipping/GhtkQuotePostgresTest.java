@@ -73,7 +73,7 @@ class GhtkQuotePostgresTest {
                 VALUES ('BOX','Box',30,20,10,1000,50,20,true)
                 """);
         when(carrier.quote(any(), any(), anyInt(), any(), anyBoolean()))
-                .thenReturn(new GhtkClient.Fee(new BigDecimal("30000"), new BigDecimal("1000"), "area1", "[]"));
+                .thenReturn(new GhtkClient.Fee(new BigDecimal("30000"), new BigDecimal("1000"), "area1", "[]", false));
     }
 
     @Test

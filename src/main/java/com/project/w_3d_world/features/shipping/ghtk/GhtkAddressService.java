@@ -48,6 +48,11 @@ public class GhtkAddressService {
         return resolve(address);
     }
 
+    public Address originalForQuote(UserAddress address) {
+        // Fee quotes use current two-level geography; legacy mappings are not applied.
+        return original(address);
+    }
+
     public Resolution resolve(UserAddress address) {
         Address original = original(address);
         List<String> values = jdbc.query("SELECT config_value FROM platform_configs WHERE config_key=?",
