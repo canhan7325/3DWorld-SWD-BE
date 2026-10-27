@@ -10,11 +10,13 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class OrderReservationWorker {
     private final OrderService orders;
+    private final com.project.w_3d_world.features.wallet.service.CommissionWalletService wallet;
 
     @Scheduled(fixedDelayString = "${app.order.reservation-scan-ms:60000}")
     public void releaseExpired() {
         try {
             orders.releaseExpiredReservations();
+            wallet.releaseDue();
         } catch (RuntimeException exception) {
             log.warn("Order reservation release failed", exception);
         }

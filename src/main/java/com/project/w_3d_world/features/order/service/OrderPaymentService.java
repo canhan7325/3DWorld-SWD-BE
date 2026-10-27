@@ -16,6 +16,7 @@ public class OrderPaymentService {
     private final StorefrontService storefronts;
     private final PhysicalOrderRepository orders;
     private final OrderStatusHistoryRepository history;
+    private final com.project.w_3d_world.features.wallet.service.CommissionWalletService wallet;
 
     @Transactional
     public void verified(PaymentTransaction transaction) {
@@ -49,5 +50,6 @@ public class OrderPaymentService {
         history.save(new OrderStatusHistory(order.getId(), "PENDING_PAYMENT", "PAID",
                 null, "Verified payment transaction " + transaction.getId()));
         transaction.fulfillment("COMPLETED");
+        wallet.postPending(order.getId(), Instant.now());
     }
 }
