@@ -72,4 +72,22 @@ public class Model3D {
         this.originType = originType;
         this.visibility = visibility == null ? "PRIVATE" : visibility;
     }
+
+    public void updateMetadata(String name, String description, String visibility) {
+        if (name != null && !name.isBlank()) {
+            this.modelName = name.trim();
+        }
+        if (description != null) {
+            this.description = description.trim();
+        }
+        if (visibility != null && !visibility.isBlank()) {
+            this.visibility = visibility.trim().toUpperCase();
+        }
+        this.updatedAt = Instant.now();
+    }
+
+    public void markDeleted() {
+        this.deletedAt = Instant.now();
+        this.updatedAt = Instant.now();
+    }
 }

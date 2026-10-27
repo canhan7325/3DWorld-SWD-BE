@@ -53,6 +53,7 @@ import jakarta.persistence.TypedQuery;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestPaymentFulfillmentService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestPaymentFulfillmentWorker;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestQuoteService;
+import com.project.w_3d_world.features.printing.service.impl.PrintPricingCalculator;
 import com.project.w_3d_world.features.printing.service.impl.PrintQuoteExpirationWorker;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestStateService;
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestStaffAccessService;
@@ -90,6 +91,114 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class PrintRequestServiceTest {
+    @Test
+    void pricingCalculatorMatchesDocumentedFdmExample() {
+        var calculator = new PrintPricingCalculator();
+        var policy = pricingPolicy("FDM", "10000", "20000", "3000", true,
+                "5", "10", "100000", "0");
+        var snapshot = priceSnapshot("FDM", "GRAM", "500", "10",
+                "35000", "0", "0", "0");
+
+        var result = calculator.calculate(policy, List.of(new PrintPricingCalculator.QuoteLineInput(
+                snapshot, new PrintPricingCalculator.SlicerInput(
+                        new BigDecimal("40"), new BigDecimal("3"), new BigDecimal("0.5")), 1)));
+
+        assertEquals(new BigDecimal("57000"), result.configurationAndMaterial());
+        assertEquals(new BigDecimal("2000"), result.lines().getFirst().materialWaste());
+        assertEquals(new BigDecimal("30000"), result.machineFee());
+        assertEquals(new BigDecimal("10000"), result.laborFee());
+        assertEquals(BigDecimal.ZERO, result.electricityFee());
+        assertEquals(new BigDecimal("4850"), result.riskFee());
+        assertEquals(new BigDecimal("10185"), result.marginFee());
+        assertEquals(new BigDecimal("112035"), result.totalPrice());
+        assertEquals(new BigDecimal("55035"), result.printingService());
+    }
+
+    @Test
+    void pricingCalculatorHandlesResinQuantityElectricityAndVndRounding() {
+        var calculator = new PrintPricingCalculator();
+        var policy = pricingPolicy("RESIN", "10", "0", "3", false,
+                "0", "0", "0", "10");
+        var snapshot = priceSnapshot("RESIN", "ML", "100.5", "10",
+                "2", "0", "0", "0");
+
+        var result = calculator.calculate(policy, List.of(new PrintPricingCalculator.QuoteLineInput(
+                snapshot, new PrintPricingCalculator.SlicerInput(
+                        new BigDecimal("1.2"), BigDecimal.ONE, BigDecimal.ZERO), 2)));
+
+        assertEquals(new BigDecimal("242"), result.lines().getFirst().materialBase());
+        assertEquals(new BigDecimal("26"), result.lines().getFirst().materialWaste());
+        assertEquals(new BigDecimal("272"), result.configurationAndMaterial());
+        assertEquals(new BigDecimal("6"), result.electricityFee());
+        assertEquals(BigDecimal.ZERO, result.laborFee());
+        assertEquals(new BigDecimal("30"), result.taxAmount());
+        assertEquals(new BigDecimal("328"), result.totalPrice());
+    }
+
+    @Test
+    void pricingCalculatorAppliesMinimumOnceAcrossMultipleItems() {
+        var calculator = new PrintPricingCalculator();
+        var policy = pricingPolicy("FDM", "0", "0", "0", true,
+                "0", "0", "100", "10");
+        var snapshot = priceSnapshot("FDM", "GRAM", "5", "0",
+                "0", "0", "0", "0");
+        var line = new PrintPricingCalculator.QuoteLineInput(snapshot,
+                new PrintPricingCalculator.SlicerInput(BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO), 2);
+
+        var result = calculator.calculate(policy, List.of(line, line));
+
+        assertEquals(2, result.lines().size());
+        assertEquals(new BigDecimal("20"), result.configurationAndMaterial());
+        assertEquals(new BigDecimal("80"), result.minimumAdjustment());
+        assertEquals(new BigDecimal("10"), result.taxAmount());
+        assertEquals(new BigDecimal("110"), result.totalPrice());
+        assertEquals(new BigDecimal("90"), result.printingService());
+    }
+
+    @Test
+    void pricingCalculatorRejectsInvalidOrUnapprovedInputs() {
+        var calculator = new PrintPricingCalculator();
+        var policy = pricingPolicy("FDM", "0", "0", "0", true,
+                "0", "0", "0", "0");
+        var snapshot = priceSnapshot("FDM", "GRAM", "5", "0",
+                "0", "0", "0", "0");
+        assertThrows(IllegalArgumentException.class, () -> calculator.calculate(null, List.of()));
+        assertThrows(IllegalArgumentException.class, () -> priceSnapshot("RESIN", "GRAM", "5", "0",
+                "0", "0", "0", "0"));
+        assertThrows(IllegalArgumentException.class, () -> pricingPolicy("FDM", "-1", "0", "0", true,
+                "0", "0", "0", "0"));
+        assertThrows(IllegalArgumentException.class, () -> pricingPolicy("FDM", "0", "0", "0", true,
+                "101", "0", "0", "0"));
+        assertThrows(IllegalArgumentException.class, () -> calculator.calculate(policy, List.of(
+                new PrintPricingCalculator.QuoteLineInput(snapshot,
+                        new PrintPricingCalculator.SlicerInput(BigDecimal.ZERO, BigDecimal.ONE,
+                                BigDecimal.ZERO), 1))));
+        assertThrows(IllegalArgumentException.class, () -> calculator.calculate(policy, List.of(
+                new PrintPricingCalculator.QuoteLineInput(snapshot,
+                        new PrintPricingCalculator.SlicerInput(BigDecimal.ONE, BigDecimal.ONE,
+                                BigDecimal.ZERO), 0))));
+        assertThrows(IllegalArgumentException.class, () -> calculator.calculate(policy, List.of(
+                new PrintPricingCalculator.QuoteLineInput(snapshot,
+                        new PrintPricingCalculator.SlicerInput(new BigDecimal("9999999999999999"),
+                                BigDecimal.ONE, BigDecimal.ZERO), 2))));
+    }
+
+    private static PrintPricingCalculator.CostPolicy pricingPolicy(String technology,
+            String machine, String labor, String electricity, boolean electricityIncluded,
+            String risk, String margin, String minimum, String tax) {
+        return new PrintPricingCalculator.CostPolicy(technology, new BigDecimal(machine),
+                new BigDecimal(labor), new BigDecimal(electricity), electricityIncluded,
+                new BigDecimal(risk), new BigDecimal(margin), new BigDecimal(minimum), new BigDecimal(tax));
+    }
+
+    private static PrintPricingCalculator.PriceSnapshot priceSnapshot(String technology,
+            String unit, String unitPrice, String waste, String base, String quality,
+            String color, String postProcessing) {
+        return new PrintPricingCalculator.PriceSnapshot(technology, unit,
+                new BigDecimal(unitPrice), new BigDecimal(waste), new BigDecimal(base),
+                new BigDecimal(quality), new BigDecimal(color), new BigDecimal(postProcessing));
+    }
+
     @Test
     void draftSelectsOwnedAddressSnapshotAndFreezesItAfterSubmit() {
         var requestRepo = mock(PrintRequestRepository.class);

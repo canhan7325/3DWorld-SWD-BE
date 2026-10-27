@@ -95,6 +95,27 @@ public class User {
         this.phone = phone;
     }
 
+    public void deductAiCredits(int amount) {
+        if (amount < 0) {
+            throw new IllegalArgumentException("Credit amount must be non-negative");
+        }
+        if (this.aiCreditsBalance < amount) {
+            throw new com.project.w_3d_world.common.exception.ApiException(
+                    org.springframework.http.HttpStatus.PAYMENT_REQUIRED,
+                    "Insufficient AI credits: required " + amount + ", available " + this.aiCreditsBalance);
+        }
+        this.aiCreditsBalance -= amount;
+        this.updatedAt = Instant.now();
+    }
+
+    public void addAiCredits(int amount) {
+        if (amount < 0) {
+            throw new IllegalArgumentException("Credit amount must be non-negative");
+        }
+        this.aiCreditsBalance += amount;
+        this.updatedAt = Instant.now();
+    }
+
     public void verifyEmail() {
         emailVerified = true;
         updatedAt = Instant.now();

@@ -16,6 +16,7 @@ import com.project.w_3d_world.features.printing.repository.PrintRequestSpecVersi
 import com.project.w_3d_world.features.printing.service.impl.PrintRequestSpecificationService;
 import com.project.w_3d_world.features.printing.validation.PrintRequestCreateValidation;
 import com.project.w_3d_world.features.printing.validation.PrintRequestReviewPolicy;
+import com.project.w_3d_world.features.printing.validation.PrintingConfigurationPolicy;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.json.JsonMapper;
@@ -24,6 +25,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
+import java.util.Set;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -31,6 +33,100 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class PrintRequestSpecificationValidationTest {
+    @Test
+    void candidateTechnologyKeepsExistingFdmAndSlaUnits() {
+        assertEquals("GRAM", PrintingConfigurationPolicy.requireUnit("FDM", "GRAM"));
+        assertEquals("ML", PrintingConfigurationPolicy.requireUnit("SLA", "ML"));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireUnit("SLA", "GRAM"));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireUnit("RESIN", "ML"));
+    }
+
+    @Test
+    void candidateColorAndQualityMustMatchMaterialAndTechnology() {
+        var color = new PrintingConfigurationPolicy.ColorOption(3, "RED", "#aa0000",
+                true, true, new BigDecimal("100"), 1);
+        PrintingConfigurationPolicy.requireColorForMaterial(3, color);
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireColorForMaterial(4, color));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireColorForMaterial(3,
+                        new PrintingConfigurationPolicy.ColorOption(3, "RED", "#aa0000",
+                                false, true, BigDecimal.ZERO, 1)));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireColorForMaterial(3,
+                        new PrintingConfigurationPolicy.ColorOption(3, "RED", "#aa0000",
+                                true, false, BigDecimal.ZERO, 1)));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PrintingConfigurationPolicy.ColorOption(3, "RED", "bad",
+                        true, true, BigDecimal.ZERO, 1));
+        var quality = new PrintingConfigurationPolicy.QualityOption("FDM", "FINE",
+                new BigDecimal("0.12"), new BigDecimal("500"), true, Set.of(3));
+        PrintingConfigurationPolicy.requireQualityForMaterial(3, "FDM", quality);
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireQualityForMaterial(4, "FDM", quality));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireQualityForMaterial(3, "SLA", quality));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PrintingConfigurationPolicy.QualityOption("FDM", "FINE",
+                        new BigDecimal("0.12"), new BigDecimal("-1"), true, Set.of(3)));
+    }
+
+    @Test
+    void candidateFdmAndResinOptionsStayTechnologySpecific() {
+        var fdm = new PrintingConfigurationPolicy.FdmLimits(10, 80,
+                Set.of("NONE", "AUTO"), Set.of("STANDARD"), Set.of("BRIM"));
+        var choice = new PrintingConfigurationPolicy.FdmSelection(20, "AUTO", "STANDARD", "BRIM");
+        PrintingConfigurationPolicy.requireFdmOptions("FDM", choice, fdm);
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireFdmOptions("SLA", choice, fdm));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireFdmOptions("FDM",
+                        new PrintingConfigurationPolicy.FdmSelection(90, "AUTO", "STANDARD", "BRIM"), fdm));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireFdmOptions("FDM",
+                        new PrintingConfigurationPolicy.FdmSelection(20, "UNKNOWN", "STANDARD", "BRIM"), fdm));
+
+        var resin = new PrintingConfigurationPolicy.ResinLimits(true, new BigDecimal("1.0"),
+                new BigDecimal("3.0"), true, Set.of("AUTO"));
+        var hollow = new PrintingConfigurationPolicy.ResinSelection(true,
+                new BigDecimal("1.5"), true, "AUTO");
+        PrintingConfigurationPolicy.requireResinOptions("SLA", hollow, resin);
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireResinOptions("FDM", hollow, resin));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireResinOptions("SLA",
+                        new PrintingConfigurationPolicy.ResinSelection(true,
+                                new BigDecimal("0.5"), true, "AUTO"), resin));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireResinOptions("SLA",
+                        new PrintingConfigurationPolicy.ResinSelection(true,
+                                new BigDecimal("1.5"), false, "AUTO"), resin));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requireResinOptions("SLA",
+                        new PrintingConfigurationPolicy.ResinSelection(false,
+                                new BigDecimal("1.5"), false, "AUTO"), resin));
+    }
+
+    @Test
+    void candidateMandatoryPostProcessingCannotBeDropped() {
+        var required = new PrintingConfigurationPolicy.PostProcessOption("CURE", "SLA",
+                true, true, new BigDecimal("250"));
+        var optional = new PrintingConfigurationPolicy.PostProcessOption("PAINT", "ALL",
+                true, false, new BigDecimal("500"));
+        var inactive = new PrintingConfigurationPolicy.PostProcessOption("POLISH", "SLA",
+                false, false, BigDecimal.ZERO);
+        PrintingConfigurationPolicy.requirePostProcessing(List.of(required, optional, inactive),
+                Set.of("CURE", "PAINT"), "SLA");
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requirePostProcessing(
+                        List.of(required, optional), Set.of("PAINT"), "SLA"));
+        assertThrows(IllegalArgumentException.class,
+                () -> PrintingConfigurationPolicy.requirePostProcessing(
+                        List.of(required, optional, inactive), Set.of("CURE", "POLISH"), "SLA"));
+    }
+
     @Test
     void sharedSpecificationRulesAcceptOptionalFieldsAndBoundaryValues() {
         var item = new CreatePrintRequestItemRequest(12, 3, "Black", "STANDARD", 100,

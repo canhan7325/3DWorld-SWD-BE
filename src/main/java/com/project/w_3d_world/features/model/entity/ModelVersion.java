@@ -69,4 +69,8 @@ public class ModelVersion {
         this.sourceType = sourceType;
         this.changeNote = changeNote;
     }
+
+    public void updateChangeNote(String changeNote) {
+        this.changeNote = changeNote;
+    }
 }
