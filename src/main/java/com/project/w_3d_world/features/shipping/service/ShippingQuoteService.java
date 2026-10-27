@@ -167,7 +167,7 @@ public class ShippingQuoteService {
     }
 
     private Address address(UserAddress address, String label) {
-        return carrierAddresses.resolve(address).carrierAddress();
+        return carrierAddresses.originalForQuote(address);
     }
 
     private String addressBasis(UserAddress address) {

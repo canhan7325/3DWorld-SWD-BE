@@ -63,6 +63,7 @@ class GhtkAddressTests {
         assertEquals("Legacy ward", result.carrierAddress().ward());
         assertEquals("1 Main Street", result.carrierAddress().address());
         assertEquals(source, result.original());
+        assertEquals(source, service.originalForQuote(address));
         assertNull(address.getDistrict());
         verify(addresses, never()).save(any());
     }
@@ -73,6 +74,8 @@ class GhtkAddressTests {
         address.update("Buyer", "0901234567", "Different street", "Current province");
         assertEquals(HttpStatus.CONFLICT, assertThrows(ApiException.class,
                 () -> service.resolve(address)).getStatus());
+        assertEquals("Different street", service.originalForQuote(address).address());
+        assertEquals("Merged ward", service.originalForQuote(address).ward());
     }
 
     @Test

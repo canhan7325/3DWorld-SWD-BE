@@ -23,7 +23,7 @@ public class GhtkAddressController {
     private final GhtkAddressService addresses;
 
     @GetMapping("/shipping/addresses/{addressId}/ghtk-address")
-    @Operation(summary = "Preview own GHTK address", description = "Return original and carrier geography for an owned address. ORIGINAL means no override; MAPPED means an explicit Admin mapping. This does not confirm GHTK delivery coverage.")
+    @Operation(summary = "Preview own GHTK address", description = "Return original and carrier geography for an owned address. ORIGINAL means no override; MAPPED means an explicit Admin mapping. This does not confirm GHTK delivery coverage. Fee quoting uses the original two-level address, not this legacy override.")
     public ApiResponse<Resolution> preview(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable int addressId) {
         return ApiResponse.success(addresses.preview(user.userId(), addressId, false));
     }
@@ -39,7 +39,7 @@ public class GhtkAddressController {
             description = "Admin supplies province, legacy district, ward and reason accepted by GHTK for this exact address. "
                     + "Stores the mapping in platform_configs and audits the change. Does not alter user_addresses. "
                     + "No automatic inference for merged wards. If the original address changes, the mapping must "
-                    + "be updated and previous shipping quotes become invalid.")
+                    + "be updated. Fee quoting uses the original province and ward; this legacy override is informational.")
     public ApiResponse<Resolution> save(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable int addressId,
                                         @Valid @RequestBody MappingRequest request) {
         return ApiResponse.success(addresses.save(user.userId(), addressId, request));
