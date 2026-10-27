@@ -1,13 +1,16 @@
 package com.project.w_3d_world.features.ai;
 
 import com.project.w_3d_world.common.exception.ApiException;
-import com.project.w_3d_world.features.ai.dto.*;
+import com.project.w_3d_world.features.ai.dto.request.*;
+import com.project.w_3d_world.features.ai.dto.response.*;
 import com.project.w_3d_world.features.ai.entity.AiRequest;
 import com.project.w_3d_world.features.ai.provider.MockAdapter;
 import com.project.w_3d_world.features.ai.provider.ProviderRegistry;
 import com.project.w_3d_world.features.ai.repository.AiRequestRepository;
 import com.project.w_3d_world.features.ai.service.AiGenerationService;
+import com.project.w_3d_world.features.ai.service.impl.AiGenerationServiceImpl;
 import com.project.w_3d_world.features.ai.service.PricingService;
+import com.project.w_3d_world.features.ai.service.impl.PricingServiceImpl;
 import com.project.w_3d_world.features.ai.util.Procedural;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
 import com.project.w_3d_world.features.model.entity.Model3D;
@@ -66,8 +69,8 @@ class AiStudioCompatibilityApiTest {
     @BeforeEach
     void setUp() throws Exception {
         providerRegistry = new ProviderRegistry("", "", "", true);
-        pricingService = new PricingService();
-        service = new AiGenerationService(
+        pricingService = new PricingServiceImpl();
+        service = new AiGenerationServiceImpl(
                 aiRequestRepository,
                 model3DRepository,
                 modelVersionRepository,

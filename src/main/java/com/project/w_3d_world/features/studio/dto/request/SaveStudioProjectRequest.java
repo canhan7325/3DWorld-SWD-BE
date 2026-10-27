@@ -1,4 +1,4 @@
-package com.project.w_3d_world.features.studio.dto;
+package com.project.w_3d_world.features.studio.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Min;

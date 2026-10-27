@@ -16,8 +16,10 @@ import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
 import com.project.w_3d_world.features.model.service.ModelDownloadService;
 import com.project.w_3d_world.features.model.service.ModelStorageService;
 import com.project.w_3d_world.features.model.storage.StoredModelFile;
-import com.project.w_3d_world.features.studio.dto.*;
+import com.project.w_3d_world.features.studio.dto.request.*;
+import com.project.w_3d_world.features.studio.dto.response.*;
 import com.project.w_3d_world.features.studio.service.StudioModelService;
+import com.project.w_3d_world.features.studio.service.impl.StudioModelServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -54,7 +56,7 @@ class StudioProjectMutationTest {
 
     @BeforeEach
     void setUp() {
-        service = new StudioModelService(
+        service = new StudioModelServiceImpl(
                 model3DRepository,
                 modelVersionRepository,
                 modelFileRepository,

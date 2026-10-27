@@ -2,7 +2,8 @@ package com.project.w_3d_world.features.ai.controller;
 
 import com.project.w_3d_world.common.config.AuthenticatedUser;
 import com.project.w_3d_world.common.response.ApiResponse;
-import com.project.w_3d_world.features.ai.dto.*;
+import com.project.w_3d_world.features.ai.dto.request.*;
+import com.project.w_3d_world.features.ai.dto.response.*;
 import com.project.w_3d_world.features.ai.service.AiGenerationService;
 import com.project.w_3d_world.features.model.download.AuthorizedModelDownload;
 import com.project.w_3d_world.features.model.validation.ModelRequestValidation;

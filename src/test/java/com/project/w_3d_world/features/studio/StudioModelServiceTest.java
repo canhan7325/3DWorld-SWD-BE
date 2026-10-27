@@ -16,11 +16,12 @@ import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
 import com.project.w_3d_world.features.model.service.ModelDownloadService;
 import com.project.w_3d_world.features.model.service.ModelStorageService;
 import com.project.w_3d_world.features.model.storage.StoredModelFile;
-import com.project.w_3d_world.features.studio.dto.CreateStudioProjectRequest;
-import com.project.w_3d_world.features.studio.dto.SaveStudioProjectRequest;
-import com.project.w_3d_world.features.studio.dto.StudioProjectDetailResponse;
-import com.project.w_3d_world.features.studio.dto.StudioProjectSummaryResponse;
+import com.project.w_3d_world.features.studio.dto.request.CreateStudioProjectRequest;
+import com.project.w_3d_world.features.studio.dto.request.SaveStudioProjectRequest;
+import com.project.w_3d_world.features.studio.dto.response.StudioProjectDetailResponse;
+import com.project.w_3d_world.features.studio.dto.response.StudioProjectSummaryResponse;
 import com.project.w_3d_world.features.studio.service.StudioModelService;
+import com.project.w_3d_world.features.studio.service.impl.StudioModelServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,7 +57,7 @@ class StudioModelServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new StudioModelService(
+        service = new StudioModelServiceImpl(
                 model3DRepository,
                 modelVersionRepository,
                 modelFileRepository,

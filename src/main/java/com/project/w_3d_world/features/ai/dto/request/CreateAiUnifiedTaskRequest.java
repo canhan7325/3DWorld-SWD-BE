@@ -1,4 +1,4 @@
-package com.project.w_3d_world.features.ai.dto;
+package com.project.w_3d_world.features.ai.dto.request;
 
 import jakarta.validation.constraints.Size;
 import java.util.Map;

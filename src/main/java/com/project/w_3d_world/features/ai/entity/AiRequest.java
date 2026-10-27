@@ -51,6 +51,12 @@ public class AiRequest {
     @Column(name = "credits_used", nullable = false)
     private int creditsUsed = 0;
 
+    public int consumeCreditsForRefund() {
+        int amount = this.creditsUsed;
+        this.creditsUsed = 0;
+        return amount;
+    }
+
     @Setter
     @Column(name = "status", nullable = false, length = 30)
     private String status = "PENDING";

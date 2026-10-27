@@ -1,4 +1,4 @@
-package com.project.w_3d_world.features.studio.dto;
+package com.project.w_3d_world.features.studio.dto.response;
 
 import java.time.Instant;
 import java.util.List;

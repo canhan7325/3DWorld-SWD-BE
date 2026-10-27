@@ -1,13 +1,15 @@
 package com.project.w_3d_world.features.ai;
 
 import com.project.w_3d_world.common.exception.ApiException;
-import com.project.w_3d_world.features.ai.dto.AiTaskDetailResponse;
-import com.project.w_3d_world.features.ai.dto.GenerateTextRequest;
+import com.project.w_3d_world.features.ai.dto.request.GenerateTextRequest;
+import com.project.w_3d_world.features.ai.dto.response.AiTaskDetailResponse;
 import com.project.w_3d_world.features.ai.entity.AiRequest;
 import com.project.w_3d_world.features.ai.provider.ProviderRegistry;
 import com.project.w_3d_world.features.ai.repository.AiRequestRepository;
 import com.project.w_3d_world.features.ai.service.AiGenerationService;
+import com.project.w_3d_world.features.ai.service.impl.AiGenerationServiceImpl;
 import com.project.w_3d_world.features.ai.service.PricingService;
+import com.project.w_3d_world.features.ai.service.impl.PricingServiceImpl;
 import com.project.w_3d_world.features.ai.util.Procedural;
 import com.project.w_3d_world.features.audit.entity.AuditLog;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
@@ -25,10 +27,11 @@ import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
 import com.project.w_3d_world.features.model.service.ModelDownloadService;
 import com.project.w_3d_world.features.model.service.ModelStorageService;
 import com.project.w_3d_world.features.model.storage.StoredModelFile;
-import com.project.w_3d_world.features.studio.dto.SaveStudioProjectRequest;
-import com.project.w_3d_world.features.studio.dto.StudioProjectDetailResponse;
-import com.project.w_3d_world.features.studio.dto.StudioProjectSummaryResponse;
+import com.project.w_3d_world.features.studio.dto.request.SaveStudioProjectRequest;
+import com.project.w_3d_world.features.studio.dto.response.StudioProjectDetailResponse;
+import com.project.w_3d_world.features.studio.dto.response.StudioProjectSummaryResponse;
 import com.project.w_3d_world.features.studio.service.StudioModelService;
+import com.project.w_3d_world.features.studio.service.impl.StudioModelServiceImpl;
 import com.project.w_3d_world.features.user.entity.User;
 import com.project.w_3d_world.features.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,15 +74,15 @@ class AiStudioInteroperabilityTest {
     @BeforeEach
     void setUp() throws Exception {
         ProviderRegistry registry = new ProviderRegistry("", "", "", true); // Mock provider
-        PricingService pricing = new PricingService();
+        PricingService pricing = new PricingServiceImpl();
 
-        aiService = new AiGenerationService(
+        aiService = new AiGenerationServiceImpl(
                 aiRequestRepository, model3DRepository, modelVersionRepository,
                 modelFileRepository, userRepository, auditLogRepository,
                 storageService, registry, pricing, 0
         );
 
-        studioService = new StudioModelService(
+        studioService = new StudioModelServiceImpl(
                 model3DRepository, modelVersionRepository, modelFileRepository,
                 storageService, downloadService, auditLogRepository
         );

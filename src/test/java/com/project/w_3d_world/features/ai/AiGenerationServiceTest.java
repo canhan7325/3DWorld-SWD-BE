@@ -1,16 +1,16 @@
 package com.project.w_3d_world.features.ai;
 
 import com.project.w_3d_world.common.exception.ApiException;
-import com.project.w_3d_world.features.ai.dto.AiEstimateRequest;
-import com.project.w_3d_world.features.ai.dto.AiEstimateResponse;
-import com.project.w_3d_world.features.ai.dto.AiTaskDetailResponse;
-import com.project.w_3d_world.features.ai.dto.GenerateTextRequest;
+import com.project.w_3d_world.features.ai.dto.request.*;
+import com.project.w_3d_world.features.ai.dto.response.*;
 import com.project.w_3d_world.features.ai.entity.AiRequest;
 import com.project.w_3d_world.features.ai.provider.MockAdapter;
 import com.project.w_3d_world.features.ai.provider.ProviderRegistry;
 import com.project.w_3d_world.features.ai.repository.AiRequestRepository;
 import com.project.w_3d_world.features.ai.service.AiGenerationService;
+import com.project.w_3d_world.features.ai.service.impl.AiGenerationServiceImpl;
 import com.project.w_3d_world.features.ai.service.PricingService;
+import com.project.w_3d_world.features.ai.service.impl.PricingServiceImpl;
 import com.project.w_3d_world.features.ai.util.Procedural;
 import com.project.w_3d_world.features.audit.entity.AuditLog;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
@@ -67,8 +67,8 @@ class AiGenerationServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         providerRegistry = new ProviderRegistry("", "", "", true); // Mock provider
-        pricingService = new PricingService();
-        service = new AiGenerationService(
+        pricingService = new PricingServiceImpl();
+        service = new AiGenerationServiceImpl(
                 aiRequestRepository,
                 model3DRepository,
                 modelVersionRepository,
@@ -177,7 +177,7 @@ class AiGenerationServiceTest {
         nonInstantRegistry.register(new MockAdapter(false));
 
         // Service with 30 credits per generation
-        AiGenerationService chargingService = new AiGenerationService(
+        AiGenerationService chargingService = new AiGenerationServiceImpl(
                 aiRequestRepository, model3DRepository, modelVersionRepository,
                 modelFileRepository, userRepository, auditLogRepository,
                 storageService, nonInstantRegistry, pricingService, 30
@@ -219,5 +219,131 @@ class AiGenerationServiceTest {
         assertEquals(30, resp.total());
         assertEquals(100, resp.userBalance());
         assertTrue(resp.sufficient());
+    }
+
+    @Test
+    @DisplayName("Duplicate cancel must never refund credits more than once")
+    void cancel_DuplicateCancel_DoesNotRefundAgain() throws Exception {
+        ProviderRegistry nonInstantRegistry = new ProviderRegistry("", "", "", true);
+        nonInstantRegistry.register(new MockAdapter(false));
+
+        AiGenerationService chargingService = new AiGenerationServiceImpl(
+                aiRequestRepository, model3DRepository, modelVersionRepository,
+                modelFileRepository, userRepository, auditLogRepository,
+                storageService, nonInstantRegistry, pricingService, 30
+        );
+
+        when(userRepository.lockById(userId)).thenReturn(Optional.of(testUser));
+
+        Model3D savedModel = new Model3D(userId, "Item", "desc",
+                ModelType.AI_GENERATOR, ModelOriginType.AI, "PRIVATE");
+        setField(savedModel, "modelId", 2003);
+        when(model3DRepository.saveAndFlush(any(Model3D.class))).thenReturn(savedModel);
+
+        AiRequest savedAiReq = new AiRequest(userId, 2003, null, "TEXT_TO_3D", "GENERATE",
+                "prompt", null, "MOCK", "mock-text-5003", 30, "PENDING");
+        setField(savedAiReq, "aiRequestId", 5003);
+        when(aiRequestRepository.saveAndFlush(any(AiRequest.class))).thenReturn(savedAiReq);
+        when(aiRequestRepository.findByAiRequestIdAndUserId(5003, userId)).thenReturn(Optional.of(savedAiReq));
+
+        // Initial balance 100 - 30 = 70
+        chargingService.generateText(userId, new GenerateTextRequest("prompt", "Item", Map.of()));
+        assertEquals(70, testUser.getAiCreditsBalance());
+
+        // First cancel refunds 30 -> 100
+        when(aiRequestRepository.lockByIdAndUserId(5003, userId)).thenReturn(Optional.of(savedAiReq));
+        chargingService.cancel(userId, 5003);
+        assertEquals(100, testUser.getAiCreditsBalance());
+
+        // Second cancel should NOT refund again
+        chargingService.cancel(userId, 5003);
+        assertEquals(100, testUser.getAiCreditsBalance());
+    }
+
+    @Test
+    @DisplayName("Explicit provider rejection (400) marks task FAILED and refunds credits once")
+    void generateText_ExplicitProviderRejection_MarksFailedAndRefundsOnce() throws Exception {
+        com.project.w_3d_world.features.ai.provider.ProviderAdapter rejectingAdapter = new com.project.w_3d_world.features.ai.provider.ProviderAdapter() {
+            @Override public String name() { return "MOCK"; }
+            @Override public String submitText(String prompt, Map<String, Object> config) {
+                throw new com.project.w_3d_world.features.ai.provider.ProviderException("BAD_PROMPT", "Content policy violation", 400, false);
+            }
+            @Override public String submitImage(byte[] imageBytes, String mimeType, Map<String, Object> config) { return null; }
+            @Override public com.project.w_3d_world.features.ai.provider.ProviderTask getTask(String taskId, String requestType) { return null; }
+            @Override public byte[] downloadGlb(String glbUrlOrReference) { return new byte[0]; }
+            @Override public void cancel(String taskId, String requestType) {}
+        };
+
+        ProviderRegistry rejectRegistry = new ProviderRegistry("", "", "", true);
+        rejectRegistry.register(rejectingAdapter);
+
+        AiGenerationService chargingService = new AiGenerationServiceImpl(
+                aiRequestRepository, model3DRepository, modelVersionRepository,
+                modelFileRepository, userRepository, auditLogRepository,
+                storageService, rejectRegistry, pricingService, 30
+        );
+
+        when(userRepository.lockById(userId)).thenReturn(Optional.of(testUser));
+
+        Model3D savedModel = new Model3D(userId, "Bad Item", "desc",
+                ModelType.AI_GENERATOR, ModelOriginType.AI, "PRIVATE");
+        setField(savedModel, "modelId", 2004);
+        when(model3DRepository.saveAndFlush(any(Model3D.class))).thenReturn(savedModel);
+
+        AiRequest savedAiReq = new AiRequest(userId, 2004, null, "TEXT_TO_3D", "GENERATE",
+                "bad prompt", null, "MOCK", null, 30, "PENDING");
+        setField(savedAiReq, "aiRequestId", 5004);
+        when(aiRequestRepository.saveAndFlush(any(AiRequest.class))).thenReturn(savedAiReq);
+        when(aiRequestRepository.findByAiRequestIdAndUserId(5004, userId)).thenReturn(Optional.of(savedAiReq));
+
+        AiTaskDetailResponse resp = chargingService.generateText(userId, new GenerateTextRequest("bad prompt", "Bad Item", Map.of()));
+        assertNotNull(resp);
+        assertEquals("FAILED", resp.status());
+        // Credits deducted (100 - 30 = 70) then refunded back (+30 = 100)
+        assertEquals(100, testUser.getAiCreditsBalance());
+    }
+
+    @Test
+    @DisplayName("Provider timeout (504) leaves task in PROCESSING awaiting reconciliation without premature refund")
+    void generateText_ProviderTimeout_LeavesTaskInProcessing() throws Exception {
+        com.project.w_3d_world.features.ai.provider.ProviderAdapter timingOutAdapter = new com.project.w_3d_world.features.ai.provider.ProviderAdapter() {
+            @Override public String name() { return "MOCK"; }
+            @Override public String submitText(String prompt, Map<String, Object> config) {
+                throw new com.project.w_3d_world.features.ai.provider.ProviderException("TIMEOUT", "Read timed out after HTTP dispatch", 504, true);
+            }
+            @Override public String submitImage(byte[] imageBytes, String mimeType, Map<String, Object> config) { return null; }
+            @Override public com.project.w_3d_world.features.ai.provider.ProviderTask getTask(String taskId, String requestType) { return null; }
+            @Override public byte[] downloadGlb(String glbUrlOrReference) { return new byte[0]; }
+            @Override public void cancel(String taskId, String requestType) {}
+        };
+
+        ProviderRegistry timeoutRegistry = new ProviderRegistry("", "", "", true);
+        timeoutRegistry.register(timingOutAdapter);
+
+        AiGenerationService chargingService = new AiGenerationServiceImpl(
+                aiRequestRepository, model3DRepository, modelVersionRepository,
+                modelFileRepository, userRepository, auditLogRepository,
+                storageService, timeoutRegistry, pricingService, 30
+        );
+
+        when(userRepository.lockById(userId)).thenReturn(Optional.of(testUser));
+
+        Model3D savedModel = new Model3D(userId, "Timeout Item", "desc",
+                ModelType.AI_GENERATOR, ModelOriginType.AI, "PRIVATE");
+        setField(savedModel, "modelId", 2005);
+        when(model3DRepository.saveAndFlush(any(Model3D.class))).thenReturn(savedModel);
+
+        AiRequest savedAiReq = new AiRequest(userId, 2005, null, "TEXT_TO_3D", "GENERATE",
+                "timeout prompt", null, "MOCK", null, 30, "PENDING");
+        setField(savedAiReq, "aiRequestId", 5005);
+        when(aiRequestRepository.saveAndFlush(any(AiRequest.class))).thenReturn(savedAiReq);
+        when(aiRequestRepository.findByAiRequestIdAndUserId(5005, userId)).thenReturn(Optional.of(savedAiReq));
+
+        AiTaskDetailResponse resp = chargingService.generateText(userId, new GenerateTextRequest("timeout prompt", "Timeout Item", Map.of()));
+        assertNotNull(resp);
+        assertEquals("PROCESSING", resp.status());
+        assertTrue(resp.failureReason().startsWith("PROVIDER_TIMEOUT_AWAITING_RECONCILIATION"));
+        // 100 - 30 = 70, NOT refunded
+        assertEquals(70, testUser.getAiCreditsBalance());
     }
 }

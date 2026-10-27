@@ -1,4 +1,4 @@
-package com.project.w_3d_world.features.ai.dto;
+package com.project.w_3d_world.features.ai.dto.response;
 
 import java.util.List;
 import java.util.Map;

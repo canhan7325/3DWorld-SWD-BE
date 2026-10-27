@@ -111,7 +111,7 @@ public class SecurityConfig {
                                 .requestMatchers(
                                                 "/api/catalog", "/api/catalog/**",
                                                 "/api/health",
-                                                "/api/webhooks/**",
+                                                "/api/webhooks/meshy",
                                                 "/api/auth/register",
                                                 "/api/auth/login",
                                                 "/api/auth/verify-email",
