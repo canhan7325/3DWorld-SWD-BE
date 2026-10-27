@@ -28,6 +28,11 @@ public class OrderPaymentService {
             return;
         }
         var order = orders.lockById(transaction.getPhysicalOrderId()).orElseThrow();
+        if (order.isCod()) {
+            // A gateway callback must never settle a cash-on-delivery obligation.
+            transaction.fulfillment("RECONCILIATION_REQUIRED");
+            return;
+        }
         if ("PAID".equals(order.getStatus()) || "PROCESSING".equals(order.getStatus())
                 || "SHIPPED".equals(order.getStatus()) || "DELIVERED".equals(order.getStatus())
                 || "RECEIVED".equals(order.getStatus())) {

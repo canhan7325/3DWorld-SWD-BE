@@ -21,6 +21,7 @@ import com.project.w_3d_world.features.order.repository.OrderStatusHistoryReposi
 import com.project.w_3d_world.features.order.repository.PhysicalOrderItemRepository;
 import com.project.w_3d_world.features.order.repository.PhysicalOrderRepository;
 import com.project.w_3d_world.features.order.service.OrderService;
+import com.project.w_3d_world.features.payment.service.CodPaymentService;
 import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
 import com.project.w_3d_world.features.shipping.service.ShippingQuoteService;
 import com.project.w_3d_world.features.shipping.dto.ShippingQuoteDtos.ShopQuote;
@@ -51,6 +52,7 @@ public class OrderServiceImpl implements OrderService {
     private final UserRepository users;
     private final UserAddressRepository addresses;
     private final ShippingQuoteService shippingQuotes;
+    private final CodPaymentService cod;
 
     @Value("${app.order.reservation-ttl-minutes:15}")
     private long reservationTtlMinutes;
@@ -62,6 +64,8 @@ public class OrderServiceImpl implements OrderService {
     private int refundHours;
     @Value("${app.order.auto-confirm-hours:24}")
     private int autoConfirmHours;
+    @Value("${app.order.cod-acceptance-ttl-minutes:1440}")
+    private long codAcceptanceTtlMinutes;
 
     @Override
     @Transactional
@@ -75,6 +79,9 @@ public class OrderServiceImpl implements OrderService {
         if (request.idempotencyKey() == null || request.idempotencyKey().isBlank()
                 || request.idempotencyKey().length() > 255 || request.shippingAddressId() == null) {
             throw ApiException.invalidRequest("Provide an address ID and a non-empty checkout idempotency key.");
+        }
+        if (!Set.of("COD", "GATEWAY").contains(request.paymentMethod())) {
+            throw ApiException.invalidRequest("Payment method must be COD or GATEWAY/ZALOPAY.");
         }
         String fingerprint = fingerprint(request);
         var existing = orders.findByBuyerUserIdAndIdempotencyKeyOrderByIdAsc(userId, request.idempotencyKey());
@@ -125,12 +132,14 @@ public class OrderServiceImpl implements OrderService {
             variant.reserve(item.getQuantity());
             groups.computeIfAbsent(product.getStorefrontId(), key -> new ArrayList<>()).add(item);
         }
-        if (reservationTtlMinutes < 1 || shippingFee.signum() < 0 || commissionRate.signum() < 0
+        if (reservationTtlMinutes < 1 || ("COD".equals(request.paymentMethod()) && codAcceptanceTtlMinutes < 1)
+                || shippingFee.signum() < 0 || commissionRate.signum() < 0
                 || commissionRate.compareTo(BigDecimal.ONE) > 0 || refundHours < 0 || autoConfirmHours < 0) {
             throw new IllegalStateException("Invalid checkout policy configuration.");
         }
         UUID checkoutGroup = UUID.randomUUID();
-        Instant expiry = Instant.now().plusSeconds(reservationTtlMinutes * 60);
+        boolean codCheckout = "COD".equals(request.paymentMethod());
+        Instant expiry = Instant.now().plusSeconds((codCheckout ? codAcceptanceTtlMinutes : reservationTtlMinutes) * 60);
         List<OrderResponse> result = new ArrayList<>();
         for (var entry : groups.entrySet()) {
             BigDecimal subtotal = entry.getValue().stream()
@@ -143,9 +152,15 @@ public class OrderServiceImpl implements OrderService {
             order.setShippingAddressId(address.getId());
             order.initializeCheckout(request.idempotencyKey(), fingerprint, expiry,
                     commissionRate, refundHours, autoConfirmHours);
+            if (codCheckout) order.selectCod();
             orders.saveAndFlush(order);
-            order.transition("PENDING_PAYMENT");
-            history.save(new OrderStatusHistory(order.getId(), null, "PENDING_PAYMENT", userId, "Checkout"));
+            if (codCheckout) {
+                cod.create(order);
+            } else {
+                order.transition("PENDING_PAYMENT");
+            }
+            history.save(new OrderStatusHistory(order.getId(), null, order.getStatus(), userId,
+                    codCheckout ? "COD checkout: awaiting seller acceptance, no online payment required" : "Checkout"));
             Map<Integer, PhysicalOrderItem> checkoutItems = new TreeMap<>();
             for (CartItem item : entry.getValue()) {
                 ProductVariant variant = locked.get(item.getVariantId());
@@ -198,10 +213,15 @@ public class OrderServiceImpl implements OrderService {
         if (order.getStatus().equals(status)) {
             return response(order);
         }
-        // Paid facts come only from payment verification; shipping facts come from ShipmentService.
-        if (!"PROCESSING".equals(status) || !"PAID".equals(order.getStatus())) {
-            throw ApiException.invalidRequest("Only PAID to PROCESSING is available through seller fulfillment.");
+        // COD acceptance does not fabricate a paid fact; online orders still require verified payment.
+        boolean codReady = order.isCod() && "CREATED".equals(order.getStatus());
+        if (!"PROCESSING".equals(status) || !("PAID".equals(order.getStatus()) || codReady)) {
+            throw ApiException.invalidRequest("Processing requires a PAID online order or a newly CREATED COD order.");
         }
+        if (codReady && order.reservationExpired(Instant.now())) {
+            throw new ApiException(HttpStatus.CONFLICT, "COD seller acceptance window expired. The buyer must checkout again.");
+        }
+        String from = order.getStatus();
         if (!order.hasReservation()) {
             throw ApiException.invalidRequest("Order has no stock reservation to consume.");
         }
@@ -210,7 +230,8 @@ public class OrderServiceImpl implements OrderService {
         }
         order.consumed();
         order.transition(status);
-        history.save(new OrderStatusHistory(orderId, "PAID", status, sellerId, "Seller processing"));
+        history.save(new OrderStatusHistory(orderId, from, status, sellerId,
+                codReady ? "Seller accepted COD order; cash not yet collected" : "Seller processing"));
         return response(order);
     }
 
@@ -230,6 +251,7 @@ public class OrderServiceImpl implements OrderService {
             String from = order.getStatus();
             order.released();
             order.transition("CANCELLED");
+            cod.cancel(order);
             history.save(new OrderStatusHistory(id, from, "CANCELLED", null, "Reservation expired"));
         }
     }
@@ -268,6 +290,7 @@ public class OrderServiceImpl implements OrderService {
             order.released();
         }
         order.cancel(reason);
+        cod.cancel(order);
         history.save(new OrderStatusHistory(orderId, from, "CANCELLED", userId, reason));
         return response(order);
     }
@@ -317,7 +340,8 @@ public class OrderServiceImpl implements OrderService {
     private String fingerprint(CheckoutRequest request) {
         try {
             String canonical = request.cartItemIds().stream().sorted().toList()
-                    + "|" + request.shippingAddressId();
+                    + "|" + request.shippingAddressId()
+                    + ("COD".equals(request.paymentMethod()) ? "|COD" : "");
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(canonical.getBytes(StandardCharsets.UTF_8)));
         } catch (Exception exception) {

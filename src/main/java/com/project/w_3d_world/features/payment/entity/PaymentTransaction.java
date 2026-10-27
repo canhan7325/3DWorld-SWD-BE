@@ -125,4 +125,22 @@ public class PaymentTransaction {
         fulfillmentStatus = result;
         updatedAt = Instant.now();
     }
+
+    public void initializeCod() {
+        settlementMode = "COD";
+        fulfillmentStatus = "PENDING_COLLECTION";
+    }
+
+    public void collectedCod() {
+        status = "PROCESSING";
+        fulfillmentStatus = "PENDING_SETTLEMENT";
+        updatedAt = Instant.now();
+    }
+
+    public void cancelCod() {
+        if (!"PENDING".equals(status)) throw new IllegalStateException("Only uncollected COD payments can be cancelled.");
+        status = "CANCELLED";
+        fulfillmentStatus = "CANCELLED";
+        updatedAt = Instant.now();
+    }
 }
