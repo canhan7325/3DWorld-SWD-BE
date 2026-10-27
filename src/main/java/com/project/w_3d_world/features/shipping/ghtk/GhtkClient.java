@@ -46,7 +46,7 @@ public class GhtkClient {
             var body = mapper.readTree(response.body());
             if (!body.path("success").asBoolean() || !body.path("fee").path("delivery").asBoolean()) {
                 throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
-                        "GHTK could not quote this route. Check pickup/delivery addresses and account coverage.");
+                        "GHTK does not support this route or does not recognize its addresses. Check pickup/delivery geography, configure GHTK address mappings if required, and verify account coverage.");
             }
             var fee = body.path("fee");
             if (!fee.path("fee").isNumber() || !fee.path("insurance_fee").isNumber()) throw unavailable();

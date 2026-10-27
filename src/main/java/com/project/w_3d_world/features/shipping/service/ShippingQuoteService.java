@@ -32,6 +32,7 @@ public class ShippingQuoteService {
     public static final String VERSION = "GHTK_FLOOR_PACK_V1";
     private final GhtkProperties config;
     private final GhtkClient carrier;
+    private final GhtkAddressService carrierAddresses;
     private final BoxPackingService packing;
     private final ShippingQuoteSigner signer;
     private final CartRepository carts;
@@ -115,6 +116,8 @@ public class ShippingQuoteService {
         int cartId = carts.findByUserId(userId).orElseThrow(() -> ApiException.invalidRequest("Cart does not exist.")).getId();
         Map<Integer, List<Item>> groups = new TreeMap<>();
         Map<Integer, Address> origins = new TreeMap<>();
+        Map<Integer, String> addressBasis = new TreeMap<>();
+        addressBasis.put(destinationAddress.getId(), addressBasis(destinationAddress));
         for (int id : ids.stream().sorted().toList()) {
             CartItem cart = items.findById(id).filter(value -> value.getCartId().equals(cartId))
                     .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Cart item does not exist."));
@@ -141,6 +144,7 @@ public class ShippingQuoteService {
                         .orElseThrow(() -> ApiException.invalidRequest("Seller storefront " + shop.getId()
                                 + " requires a default pickup address before GHTK quoting."));
                 origins.put(shop.getId(), address(pickup, "Seller pickup"));
+                addressBasis.put(pickup.getId(), addressBasis(pickup));
             }
         }
         List<Box> boxes = jdbc.query("SELECT * FROM packaging_profiles WHERE status='ACTIVE' ORDER BY packaging_profile_id",
@@ -154,7 +158,7 @@ public class ShippingQuoteService {
                             rs.getBigDecimal("box_cost_vnd"), rs.getBigDecimal("padding_cost_vnd"));
                 });
         String payload = JsonValues.write(List.of(userId, ids.stream().sorted().toList(), addressId, destination,
-                groups, origins, boxes, config.paddingCm(), config.transport()));
+                groups, origins, addressBasis, boxes, config.paddingCm(), config.transport()));
         try {
             String fingerprint = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(payload.getBytes(StandardCharsets.UTF_8)));
@@ -163,13 +167,12 @@ public class ShippingQuoteService {
     }
 
     private Address address(UserAddress address, String label) {
-        if (address.getProvince() == null || address.getProvince().isBlank()
-                || address.getWard() == null || address.getWard().isBlank()
-                || address.getAddressLine() == null || address.getAddressLine().isBlank()) {
-            throw ApiException.invalidRequest(label + " address requires address line, province and ward.");
-        }
-        return new Address(address.getAddressLine(), address.getProvince(),
-                Objects.requireNonNullElse(address.getDistrict(), ""), address.getWard());
+        return carrierAddresses.resolve(address).carrierAddress();
+    }
+
+    private String addressBasis(UserAddress address) {
+        return JsonValues.write(Arrays.asList(address.getId(), address.getAddressLine(), address.getProvince(),
+                address.getDistrict(), address.getWard(), address.getRecipientName(), address.getPhone()));
     }
 
     @Transactional
