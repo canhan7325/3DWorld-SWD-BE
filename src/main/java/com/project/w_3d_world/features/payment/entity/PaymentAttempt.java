@@ -137,4 +137,47 @@ public class PaymentAttempt {
         attemptStatus = "FAILED";
         completedAt = Instant.now();
     }
+
+    @Column(name = "cod_collected_at")
+    private Instant codCollectedAt;
+    @Column(name = "cod_settled_at")
+    private Instant codSettledAt;
+    @Column(name = "evidence_key", columnDefinition = "text")
+    private String evidenceKey;
+    @Column(name = "review_reason", columnDefinition = "text")
+    private String reviewReason;
+    @Column(name = "verified_by_user_id")
+    private Integer verifiedByUserId;
+
+    public void initializeCod() {
+        providerName = "COD_MANUAL";
+        gatewayState = "PENDING_COLLECTION";
+    }
+
+    public void collectCod(Instant at, String reference, String evidence, int actor, String reason) {
+        codCollectedAt = at;
+        externalReference = reference;
+        evidenceKey = evidence;
+        verifiedByUserId = actor;
+        reviewReason = reason;
+        attemptStatus = "PROCESSING";
+        gatewayState = "PENDING_SETTLEMENT";
+        updatedAt = Instant.now();
+    }
+
+    public void settleCod(Instant at, String reference, String evidence, int actor, String reason) {
+        codSettledAt = at;
+        providerTransactionId = reference;
+        evidenceKey = evidence;
+        verifiedByUserId = actor;
+        reviewReason = reason;
+        gatewayState = "SETTLED";
+        success();
+    }
+
+    public void cancelCod() {
+        attemptStatus = "CANCELLED";
+        gatewayState = "CANCELLED";
+        completedAt = Instant.now();
+    }
 }

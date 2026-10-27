@@ -57,6 +57,9 @@ class V2PersistenceIntegrationTest {
     StorefrontService storefrontService;
 
     @MockitoBean
+    com.project.w_3d_world.features.payment.service.CodPaymentService cod;
+
+    @MockitoBean
     com.project.w_3d_world.features.shipping.service.ShippingQuoteService shippingQuotes;
 
     @Autowired JdbcTemplate jdbc;

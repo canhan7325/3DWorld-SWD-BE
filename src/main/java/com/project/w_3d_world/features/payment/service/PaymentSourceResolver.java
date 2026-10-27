@@ -34,6 +34,7 @@ public class PaymentSourceResolver {
         requireStage(stage, "FULL");
         return one("SELECT total_amount FROM physical_orders "
                 + "WHERE physical_order_id = ? AND buyer_user_id = ? "
+                + "AND coalesce(payment_method_snapshot,'GATEWAY') <> 'COD' "
                 + "AND order_status IN ('CREATED', 'PENDING_PAYMENT') "
                 + "AND reservation_status='RESERVED' AND reservation_expires_at > now()", id, userId);
     }

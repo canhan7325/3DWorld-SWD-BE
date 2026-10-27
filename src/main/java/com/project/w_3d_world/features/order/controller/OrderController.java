@@ -37,7 +37,8 @@ public class OrderController {
     @Operation(
             summary = "Checkout selected cart items",
             description = "Splits selected physical items into one child order per seller "
-                    + "and reserves stock atomically.")
+                    + "and reserves stock atomically. Set paymentMethod=COD for payment on delivery; "
+                    + "the order is CREATED and onlinePaymentRequired=false. GATEWAY/ZALOPAY defaults to online payment.")
     public ApiResponse<List<OrderResponse>> checkout(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody CheckoutRequest request) {
@@ -57,7 +58,7 @@ public class OrderController {
     }
 
     @PatchMapping("/{orderId}/status")
-    @Operation(summary = "Update order status", description = "Apply a guarded seller fulfillment transition.")
+    @Operation(summary = "Update order status", description = "Set PROCESSING to accept a CREATED COD order without payment, or process a PAID online order. Stock is consumed once.")
     public ApiResponse<OrderResponse> status(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable int orderId,
