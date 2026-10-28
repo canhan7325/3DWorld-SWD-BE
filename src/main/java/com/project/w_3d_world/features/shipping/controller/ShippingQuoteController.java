@@ -29,6 +29,8 @@ public class ShippingQuoteController {
                     + "floor rotation only and no stacking. Each parcel is quoted independently, not as a consolidated "
                     + "multi-package consignment. Pass returned quoteToken to checkout within its expiry. "
                     + "Packaging cost is informational/internal; totalShippingFee includes carrier fee and insurance. "
+                    + "Uses original province and ward (two-level geography), without legacy district mappings. "
+                    + "A valid fee is accepted even when carrierFees.delivery is false; delivery is informational only. "
                     + "No shipment is created and stock is not reserved by this endpoint.")
     public ApiResponse<QuoteResponse> quote(@AuthenticationPrincipal AuthenticatedUser user,
                                             @Valid @RequestBody QuoteRequest request) {

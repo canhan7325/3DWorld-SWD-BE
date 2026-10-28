@@ -18,7 +18,12 @@ public class GhtkClient {
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     public record Address(String address, String province, String district, String ward) {}
-    public record Fee(BigDecimal shipping, BigDecimal insurance, String service, String extraFees) {
+    public record Fee(BigDecimal shipping, BigDecimal insurance, String service, String extraFees,
+                      Boolean delivery) {
+        public Fee(BigDecimal shipping, BigDecimal insurance, String service, String extraFees) {
+            this(shipping, insurance, service, extraFees, null);
+        }
+
         public BigDecimal total() { return shipping.add(insurance); }
     }
 
@@ -29,9 +34,9 @@ public class GhtkClient {
         if (weightGrams < 1) throw ApiException.invalidRequest("Package weight must be positive.");
         var uri = UriComponentsBuilder.fromUriString(config.baseUrl()).path("/services/shipment/fee")
                 .queryParam("pick_address", pickup.address()).queryParam("pick_province", pickup.province())
-                .queryParam("pick_district", pickup.district()).queryParam("pick_ward", pickup.ward())
+                .queryParam("pick_ward", pickup.ward())
                 .queryParam("address", destination.address()).queryParam("province", destination.province())
-                .queryParam("district", destination.district()).queryParam("ward", destination.ward())
+                .queryParam("ward", destination.ward())
                 .queryParam("weight", weightGrams).queryParam("value", value.longValueExact())
                 .queryParam("transport", config.transport());
         if (fragile) uri.queryParam("tags[]", 1);
@@ -44,9 +49,9 @@ public class GhtkClient {
             var response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) throw unavailable();
             var body = mapper.readTree(response.body());
-            if (!body.path("success").asBoolean() || !body.path("fee").path("delivery").asBoolean()) {
+            if (!body.path("success").asBoolean()) {
                 throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
-                        "GHTK could not quote this route. Check pickup/delivery addresses and account coverage.");
+                        "GHTK could not calculate a fee for these addresses. Please check the addresses and try again.");
             }
             var fee = body.path("fee");
             if (!fee.path("fee").isNumber() || !fee.path("insurance_fee").isNumber()) throw unavailable();
@@ -54,7 +59,9 @@ public class GhtkClient {
             var insurance = fee.path("insurance_fee").decimalValue();
             if (shipping.signum() < 0 || insurance.signum() < 0) throw unavailable();
             // extFees describe carrier surcharges; do not add them twice to the quoted fee.
-            return new Fee(shipping, insurance, fee.path("name").asText(), fee.path("extFees").toString());
+            // Fee-only integration: delivery is informational, never a checkout eligibility gate.
+            Boolean delivery = fee.path("delivery").isBoolean() ? fee.path("delivery").asBoolean() : null;
+            return new Fee(shipping, insurance, fee.path("name").asText(), fee.path("extFees").toString(), delivery);
         } catch (ApiException exception) {
             throw exception;
         } catch (InterruptedException exception) {
