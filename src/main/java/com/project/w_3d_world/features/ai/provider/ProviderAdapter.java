@@ -31,6 +31,13 @@ public interface ProviderAdapter {
     byte[] downloadGlb(String glbUrlOrReference);
 
     /**
+     * Downloads a generated asset file (GLB, STL, OBJ, FBX, etc.) from the provider.
+     */
+    default byte[] downloadAsset(String urlOrReference) {
+        return downloadGlb(urlOrReference);
+    }
+
+    /**
      * Cancels an ongoing task if permitted.
      */
     void cancel(String taskId, String requestType);

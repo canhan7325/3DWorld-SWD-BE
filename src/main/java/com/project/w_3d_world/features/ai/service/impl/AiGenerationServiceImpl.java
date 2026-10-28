@@ -2,79 +2,65 @@ package com.project.w_3d_world.features.ai.service.impl;
 
 import com.project.w_3d_world.features.ai.dto.request.*;
 import com.project.w_3d_world.features.ai.dto.response.*;
-import com.project.w_3d_world.features.ai.service.AiGenerationService;
-import com.project.w_3d_world.features.ai.service.PricingService;
-
-import com.project.w_3d_world.common.exception.ApiException;
-
-import com.project.w_3d_world.features.ai.entity.AiRequest;
-import com.project.w_3d_world.features.ai.provider.ProviderAdapter;
 import com.project.w_3d_world.features.ai.provider.ProviderRegistry;
-import com.project.w_3d_world.features.ai.provider.ProviderTask;
 import com.project.w_3d_world.features.ai.repository.AiRequestRepository;
-import com.project.w_3d_world.features.ai.util.GlbStats;
-import com.project.w_3d_world.features.ai.util.ImageProbe;
-import com.project.w_3d_world.features.audit.entity.AuditLog;
+import com.project.w_3d_world.features.ai.service.*;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
 import com.project.w_3d_world.features.model.download.AuthorizedModelDownload;
-import com.project.w_3d_world.features.model.entity.Model3D;
-import com.project.w_3d_world.features.model.entity.ModelFile;
-import com.project.w_3d_world.features.model.entity.ModelVersion;
-import com.project.w_3d_world.features.model.enums.ModelFileRole;
-import com.project.w_3d_world.features.model.enums.ModelOriginType;
-import com.project.w_3d_world.features.model.enums.ModelSourceType;
-import com.project.w_3d_world.features.model.enums.ModelType;
+import com.project.w_3d_world.features.model.service.ModelDownloadService;
 import com.project.w_3d_world.features.model.repository.Model3DRepository;
 import com.project.w_3d_world.features.model.repository.ModelFileRepository;
 import com.project.w_3d_world.features.model.repository.ModelVersionRepository;
-import com.project.w_3d_world.features.model.service.ModelDownloadService;
 import com.project.w_3d_world.features.model.service.ModelStorageService;
-import com.project.w_3d_world.features.model.storage.StoredModelFile;
-import com.project.w_3d_world.features.user.entity.User;
 import com.project.w_3d_world.features.user.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.time.Instant;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
 
-@Service
+/**
+ * High-level Facade delegating to specialized AI domain services:
+ * - {@link AiTaskService} for AI 3D task lifecycle, polling, webhooks, estimation, and configuration.
+ * - {@link AiUploadService} for source image uploads, file listing, downloads, and staging cache.
+ * - {@link AiProjectService} for AI-generated model projects, versions, and mesh dimensions.
+ * - {@link AiExportService} for multi-format exports (GLB, STL, OBJ with ZIP packaging, FBX) and asset downloads.
+ * - {@link AiWalletService} for user AI credits, demo topups, credit reservations, and refunds.
+ */
 @Slf4j
+@Service
 public class AiGenerationServiceImpl implements AiGenerationService {
-    private static final long MAX_IMAGE_SIZE = 20L * 1024 * 1024; // 20 MB
-    private static final int MIN_IMAGE_SIDE = 64;
-    private static final int MAX_IMAGE_SIDE = 8192;
 
-    private final AiRequestRepository aiRequestRepository;
-    private final Model3DRepository model3DRepository;
-    private final ModelVersionRepository modelVersionRepository;
-    private final ModelFileRepository modelFileRepository;
-    private final UserRepository userRepository;
-    private final AuditLogRepository auditLogRepository;
-    private final ModelStorageService storageService;
-    private final ModelDownloadService downloadService;
-    private final ProviderRegistry providerRegistry;
-    private final PricingService pricingService;
-    private final TransactionTemplate txTemplate;
-    private final Environment environment;
-    private final int defaultCreditsPerGeneration;
-    private final boolean demoTopupEnabled;
-    private final String webhookSecret;
+    private final AiTaskService aiTaskService;
+    private final AiUploadService aiUploadService;
+    private final AiProjectService aiProjectService;
+    private final AiExportService aiExportService;
+    private final AiWalletService aiWalletService;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
+    public AiGenerationServiceImpl(
+            AiTaskService aiTaskService,
+            AiUploadService aiUploadService,
+            AiProjectService aiProjectService,
+            AiExportService aiExportService,
+            AiWalletService aiWalletService
+    ) {
+        this.aiTaskService = aiTaskService;
+        this.aiUploadService = aiUploadService;
+        this.aiProjectService = aiProjectService;
+        this.aiExportService = aiExportService;
+        this.aiWalletService = aiWalletService;
+    }
+
+    /**
+     * Backward-compatible 16-argument constructor for existing tests and direct instantiations.
+     */
     public AiGenerationServiceImpl(
             AiRequestRepository aiRequestRepository,
             Model3DRepository model3DRepository,
@@ -88,27 +74,72 @@ public class AiGenerationServiceImpl implements AiGenerationService {
             PricingService pricingService,
             PlatformTransactionManager transactionManager,
             Environment environment,
-            @Value("${app.ai.credits-per-generation:0}") int defaultCreditsPerGeneration,
-            @Value("${app.ai.demo-topup-enabled:true}") boolean demoTopupEnabled,
-            @Value("${app.ai.webhook-secret:}") String webhookSecret
+            int defaultCreditsPerGeneration,
+            boolean demoTopupEnabled,
+            String webhookSecret,
+            ModelConverterService modelConverterService
     ) {
-        this.aiRequestRepository = aiRequestRepository;
-        this.model3DRepository = model3DRepository;
-        this.modelVersionRepository = modelVersionRepository;
-        this.modelFileRepository = modelFileRepository;
-        this.userRepository = userRepository;
-        this.auditLogRepository = auditLogRepository;
-        this.storageService = storageService;
-        this.downloadService = downloadService;
-        this.providerRegistry = providerRegistry;
-        this.pricingService = pricingService;
-        this.txTemplate = new TransactionTemplate(transactionManager);
-        this.environment = environment;
-        this.defaultCreditsPerGeneration = Math.max(0, defaultCreditsPerGeneration);
-        this.demoTopupEnabled = demoTopupEnabled;
-        this.webhookSecret = webhookSecret;
+        AiWalletService walletSvc = new AiWalletServiceImpl(userRepository, aiRequestRepository, auditLogRepository, environment, demoTopupEnabled);
+        AiUploadService uploadSvc = new AiUploadServiceImpl(auditLogRepository, aiRequestRepository, storageService);
+        AiProjectService projectSvc = new AiProjectServiceImpl(model3DRepository, modelVersionRepository, modelFileRepository, aiRequestRepository, storageService, auditLogRepository);
+        AiExportService exportSvc = new AiExportServiceImpl(model3DRepository, modelVersionRepository, modelFileRepository, aiRequestRepository, storageService, downloadService, providerRegistry, modelConverterService);
+        AiTaskService taskSvc = new AiTaskServiceImpl(
+                aiRequestRepository, model3DRepository, modelVersionRepository, modelFileRepository,
+                userRepository, auditLogRepository, storageService, providerRegistry, pricingService,
+                new TransactionTemplate(transactionManager), defaultCreditsPerGeneration, webhookSecret,
+                walletSvc, uploadSvc, exportSvc
+        );
+
+        this.aiTaskService = taskSvc;
+        this.aiUploadService = uploadSvc;
+        this.aiProjectService = projectSvc;
+        this.aiExportService = exportSvc;
+        this.aiWalletService = walletSvc;
     }
 
+    /**
+     * Backward-compatible 15-argument constructor.
+     */
+    public AiGenerationServiceImpl(
+            AiRequestRepository aiRequestRepository,
+            Model3DRepository model3DRepository,
+            ModelVersionRepository modelVersionRepository,
+            ModelFileRepository modelFileRepository,
+            UserRepository userRepository,
+            AuditLogRepository auditLogRepository,
+            ModelStorageService storageService,
+            ModelDownloadService downloadService,
+            ProviderRegistry providerRegistry,
+            PricingService pricingService,
+            PlatformTransactionManager transactionManager,
+            Environment environment,
+            int defaultCreditsPerGeneration,
+            boolean demoTopupEnabled,
+            String webhookSecret
+    ) {
+        this(
+                aiRequestRepository,
+                model3DRepository,
+                modelVersionRepository,
+                modelFileRepository,
+                userRepository,
+                auditLogRepository,
+                storageService,
+                downloadService,
+                providerRegistry,
+                pricingService,
+                transactionManager,
+                environment,
+                defaultCreditsPerGeneration,
+                demoTopupEnabled,
+                webhookSecret,
+                null
+        );
+    }
+
+    /**
+     * Backward-compatible 10-argument constructor.
+     */
     public AiGenerationServiceImpl(
             AiRequestRepository aiRequestRepository,
             Model3DRepository model3DRepository,
@@ -145,6 +176,7 @@ public class AiGenerationServiceImpl implements AiGenerationService {
                 null,
                 defaultCreditsPerGeneration,
                 true,
+                null,
                 null
         );
     }
@@ -159,1166 +191,128 @@ public class AiGenerationServiceImpl implements AiGenerationService {
             Instant createdAt
     ) {}
 
-    private final Map<String, StagedUpload> stagedUploads = new java.util.concurrent.ConcurrentHashMap<>();
+    // ---------------- AiTaskService delegations ----------------
 
-    private int refundAiCreditsOnce(AiRequest aiRequest, int userId, String auditReason) {
-        int toRefund = aiRequest.consumeCreditsForRefund();
-        if (toRefund > 0) {
-            userRepository.lockById(userId).ifPresent(u -> {
-                u.addAiCredits(toRefund);
-                userRepository.saveAndFlush(u);
-            });
-            auditLogRepository.save(new AuditLog(
-                    userId, "AI_CREDITS_REFUNDED", "AI_REQUEST",
-                    aiRequest.getAiRequestId(), "Refunded " + toRefund + " credits: " + auditReason, null
-            ));
-        }
-        return toRefund;
-    }
-
-    private boolean isExplicitProviderRejection(Exception err) {
-        if (err instanceof com.project.w_3d_world.features.ai.provider.ProviderException pe) {
-            int code = pe.getHttpStatus();
-            return code >= 400 && code < 500 && code != 408 && code != 429;
-        }
-        return false;
-    }
-
-    private static String checkedName(String name, String fallback) {
-        String val = (name == null || name.isBlank()) ? fallback : name.trim();
-        if (val.length() > 255) {
-            val = val.substring(0, 255);
-        }
-        return val;
-    }
-
-    private record InitialAiRequestData(AiRequest aiRequest, Model3D model, int creditCost) {}
-
+    @Override
     public AiTaskDetailResponse generateText(int userId, GenerateTextRequest request) {
-        if (request == null || request.prompt() == null || request.prompt().isBlank()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Prompt cannot be blank.");
-        }
-        String prompt = request.prompt().trim();
-        if (prompt.length() > 800) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Prompt cannot exceed 800 characters.");
-        }
-
-        Map<String, Object> normConfig = pricingService.normalizeConfig(request.config(), "single");
-        Map<String, Object> est = pricingService.estimate(normConfig, 1);
-        int creditCost = defaultCreditsPerGeneration > 0 ? defaultCreditsPerGeneration : ((Number) est.get("total")).intValue();
-        String modelName = checkedName(request.name(), prompt.length() > 40 ? prompt.substring(0, 40) + "..." : prompt);
-
-        ProviderAdapter provider = providerRegistry.get();
-
-        // Phase 1: Short DB transaction to deduct credits and create PENDING records
-        InitialAiRequestData initData = txTemplate.execute(status -> {
-            User user = userRepository.lockById(userId)
-                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
-            if (!user.isActive()) {
-                throw new ApiException(HttpStatus.FORBIDDEN, "Account is not active.");
-            }
-
-            if (creditCost > 0) {
-                user.deductAiCredits(creditCost);
-                userRepository.saveAndFlush(user);
-            }
-
-            Model3D model = model3DRepository.saveAndFlush(new Model3D(
-                    userId,
-                    modelName,
-                    prompt,
-                    ModelType.AI_GENERATOR,
-                    ModelOriginType.AI,
-                    "PRIVATE"
-            ));
-
-            AiRequest aiRequest = aiRequestRepository.saveAndFlush(new AiRequest(
-                    userId,
-                    model.getModelId(),
-                    null,
-                    "TEXT_TO_3D",
-                    "GENERATE",
-                    prompt,
-                    null,
-                    provider.name(),
-                    null,
-                    creditCost,
-                    "PENDING"
-            ));
-
-            return new InitialAiRequestData(aiRequest, model, creditCost);
-        });
-
-        // Phase 2: Outside DB transaction - call AI provider HTTP API
-        String providerJobId = null;
-        Exception providerError = null;
-        try {
-            providerJobId = provider.submitText(prompt, normConfig);
-        } catch (Exception e) {
-            providerError = e;
-        }
-
-        // Phase 3: Short DB transaction to update request status or handle error & refund
-        if (providerJobId != null) {
-            final String jobId = providerJobId;
-            txTemplate.executeWithoutResult(status -> {
-                AiRequest aiReq = initData.aiRequest();
-                aiReq.markProcessing(jobId);
-                aiRequestRepository.saveAndFlush(aiReq);
-
-                // If provider completed immediately (e.g. MockAdapter), complete now
-                try {
-                    ProviderTask task = provider.getTask(jobId, "TEXT_TO_3D");
-                    if (task != null && task.isSuccess()) {
-                        completeGeneration(aiReq, initData.model(), provider, task);
-                    }
-                } catch (Exception e) {
-                    log.warn("Immediate task check failed: {}", e.getMessage());
-                }
-            });
-        } else {
-            final Exception err = providerError;
-            txTemplate.executeWithoutResult(status -> {
-                log.error("Failed to submit text-to-3d job to provider", err);
-                AiRequest aiReq = initData.aiRequest();
-                if (isExplicitProviderRejection(err)) {
-                    aiReq.markFailed("Provider rejected: " + (err != null ? err.getMessage() : "Unknown error"));
-                    refundAiCreditsOnce(aiReq, userId, "Provider rejected submission: " + (err != null ? err.getMessage() : ""));
-                } else {
-                    aiReq.markProcessing(null);
-                    aiReq.setFailureReason("PROVIDER_TIMEOUT_AWAITING_RECONCILIATION: " + (err != null ? err.getMessage() : "Unknown error"));
-                    log.warn("Submission timed out or network error for request #{}; keeping in PROCESSING without automatic refund", aiReq.getAiRequestId());
-                }
-                aiRequestRepository.saveAndFlush(aiReq);
-            });
-        }
-
-        auditLogRepository.save(new AuditLog(
-                userId, "AI_TEXT_TO_3D_REQUESTED", "AI_REQUEST",
-                initData.aiRequest().getAiRequestId(), "Prompt: " + (prompt.length() > 50 ? prompt.substring(0, 50) + "..." : prompt), null
-        ));
-
-        return detail(userId, initData.aiRequest().getAiRequestId());
+        return aiTaskService.generateText(userId, request);
     }
 
+    @Override
     public AiTaskDetailResponse generateImage(int userId, String name, String prompt, MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Image file is required.");
-        }
-        if (file.getSize() > MAX_IMAGE_SIZE) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Image exceeds maximum allowed size of 20 MB.");
-        }
-
-        byte[] bytes;
-        try {
-            bytes = file.getBytes();
-        } catch (IOException e) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Failed to read image bytes.");
-        }
-
-        String mime = ImageProbe.sniffMime(bytes);
-        if (mime == null) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid image format. Supported formats: JPEG, PNG, WEBP.");
-        }
-
-        ImageProbe.Dim dim;
-        try {
-            dim = ImageProbe.dimensions(bytes, mime);
-        } catch (Exception e) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Corrupt or unreadable image file.");
-        }
-
-        if (Math.min(dim.width(), dim.height()) < MIN_IMAGE_SIDE) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Image too small. Minimum dimension is " + MIN_IMAGE_SIDE + "px.");
-        }
-        if (Math.max(dim.width(), dim.height()) > MAX_IMAGE_SIDE) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Image too large. Maximum dimension is " + MAX_IMAGE_SIDE + "px.");
-        }
-
-        Map<String, Object> normConfig = pricingService.normalizeConfig(null, "single");
-        Map<String, Object> est = pricingService.estimate(normConfig, 1);
-        int creditCost = defaultCreditsPerGeneration > 0 ? defaultCreditsPerGeneration : ((Number) est.get("total")).intValue();
-
-        String originalName = file.getOriginalFilename() == null ? "image." + mime.substring(6) : file.getOriginalFilename();
-        String modelName = checkedName(name, originalName);
-
-        User preCheckUser = userRepository.findById(userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
-        if (creditCost > 0 && preCheckUser.getAiCreditsBalance() < creditCost) {
-            throw new ApiException(HttpStatus.PAYMENT_REQUIRED,
-                    "Insufficient AI credits: required " + creditCost + ", available " + preCheckUser.getAiCreditsBalance());
-        }
-
-        // Stage input image in user-isolated staged memory store
-        String ext = mime.contains("png") ? "png" : (mime.contains("webp") ? "webp" : "jpg");
-        String inputId = UUID.randomUUID().toString();
-        String inputStorageKey = "ai/inputs/" + userId + "/" + inputId + "." + ext;
-        stagedUploads.put(inputId, new StagedUpload(inputId, userId, originalName, mime, bytes.length, bytes, Instant.now()));
-
-        ProviderAdapter provider = providerRegistry.get();
-
-        // Phase 1: Short DB transaction to deduct credits and persist initial records
-        InitialAiRequestData initData = txTemplate.execute(status -> {
-            User user = userRepository.lockById(userId)
-                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
-            if (!user.isActive()) {
-                throw new ApiException(HttpStatus.FORBIDDEN, "Account is not active.");
-            }
-
-            if (creditCost > 0) {
-                user.deductAiCredits(creditCost);
-                userRepository.saveAndFlush(user);
-            }
-
-            Model3D model = model3DRepository.saveAndFlush(new Model3D(
-                    userId,
-                    modelName,
-                    prompt == null ? "Image-to-3D: " + originalName : prompt,
-                    ModelType.AI_GENERATOR,
-                    ModelOriginType.AI,
-                    "PRIVATE"
-            ));
-
-            AiRequest aiRequest = aiRequestRepository.saveAndFlush(new AiRequest(
-                    userId,
-                    model.getModelId(),
-                    null,
-                    "IMAGE_TO_3D",
-                    "GENERATE",
-                    prompt,
-                    inputStorageKey,
-                    provider.name(),
-                    null,
-                    creditCost,
-                    "PENDING"
-            ));
-
-            return new InitialAiRequestData(aiRequest, model, creditCost);
-        });
-
-        // Phase 2: Outside DB transaction - call AI provider HTTP API
-        String providerJobId = null;
-        Exception providerError = null;
-        try {
-            providerJobId = provider.submitImage(bytes, mime, normConfig);
-        } catch (Exception e) {
-            providerError = e;
-        }
-
-        // Phase 3: Short DB transaction to update request status or handle error & refund
-        if (providerJobId != null) {
-            final String jobId = providerJobId;
-            txTemplate.executeWithoutResult(status -> {
-                AiRequest aiReq = initData.aiRequest();
-                aiReq.markProcessing(jobId);
-                aiRequestRepository.saveAndFlush(aiReq);
-
-                try {
-                    ProviderTask task = provider.getTask(jobId, "IMAGE_TO_3D");
-                    if (task != null && task.isSuccess()) {
-                        completeGeneration(aiReq, initData.model(), provider, task);
-                    }
-                } catch (Exception e) {
-                    log.warn("Immediate task check failed: {}", e.getMessage());
-                }
-            });
-        } else {
-            final Exception err = providerError;
-            txTemplate.executeWithoutResult(status -> {
-                log.error("Failed to submit image-to-3d job to provider", err);
-                AiRequest aiReq = initData.aiRequest();
-                if (isExplicitProviderRejection(err)) {
-                    aiReq.markFailed("Provider rejected: " + (err != null ? err.getMessage() : "Unknown error"));
-                    refundAiCreditsOnce(aiReq, userId, "Provider rejected submission: " + (err != null ? err.getMessage() : ""));
-                } else {
-                    aiReq.markProcessing(null);
-                    aiReq.setFailureReason("PROVIDER_TIMEOUT_AWAITING_RECONCILIATION: " + (err != null ? err.getMessage() : "Unknown error"));
-                    log.warn("Image submission timed out or network error for request #{}; keeping in PROCESSING without automatic refund", aiReq.getAiRequestId());
-                }
-                aiRequestRepository.saveAndFlush(aiReq);
-            });
-        }
-
-        auditLogRepository.save(new AuditLog(
-                userId, "AI_IMAGE_TO_3D_REQUESTED", "AI_REQUEST",
-                initData.aiRequest().getAiRequestId(), "File: " + originalName, null
-        ));
-
-        return detail(userId, initData.aiRequest().getAiRequestId());
+        return aiTaskService.generateImage(userId, name, prompt, file);
     }
 
+    @Override
     public AiTaskDetailResponse createUnifiedTask(int userId, CreateAiUnifiedTaskRequest request) {
-        if (request == null) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Request body is required.");
-        }
-        String mode = request.mode() != null ? request.mode().trim().toUpperCase(Locale.ROOT) : "TEXT_TO_3D";
-        boolean isImageMode = "IMAGE_TO_3D".equalsIgnoreCase(mode) || "SINGLE".equalsIgnoreCase(mode)
-                || "MULTI".equalsIgnoreCase(mode) || (request.uploadIds() != null && !request.uploadIds().isEmpty());
-
-        if (isImageMode) {
-            if (request.consent() != null && !request.consent()) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "CONSENT_REQUIRED: Confirmation of image rights is required.");
-            }
-            if (request.uploadIds() == null || request.uploadIds().isEmpty()) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_IMAGES: At least one uploaded image ID is required.");
-            }
-            String uploadId = request.uploadIds().get(0);
-            StagedUpload staged = stagedUploads.get(uploadId);
-            if (staged == null || staged.userId() != userId) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_IMAGES: Uploaded image not found or expired.");
-            }
-
-            int variants = (request.variants() != null && request.variants() > 0) ? request.variants() : 1;
-            Map<String, Object> normConfig = pricingService.normalizeConfig(request.config(), "single");
-            Map<String, Object> est = pricingService.estimate(normConfig, variants);
-            int creditCost = defaultCreditsPerGeneration > 0 ? defaultCreditsPerGeneration : ((Number) est.get("total")).intValue();
-
-            if (request.quotedCredits() != null && request.quotedCredits().intValue() != creditCost) {
-                throw new ApiException(HttpStatus.CONFLICT, "PRICE_CHANGED: Estimated credits (" + creditCost + ") do not match quoted credits (" + request.quotedCredits() + ").");
-            }
-
-            User userCheck = userRepository.findById(userId)
-                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
-            if (creditCost > 0 && userCheck.getAiCreditsBalance() < creditCost) {
-                throw new ApiException(HttpStatus.PAYMENT_REQUIRED, "INSUFFICIENT_CREDITS: Required " + creditCost + ", available " + userCheck.getAiCreditsBalance());
-            }
-
-            String originalName = staged.filename();
-            String modelName = checkedName(request.name(), originalName);
-            String prompt = request.prompt() != null ? request.prompt().trim() : "Image-to-3D: " + originalName;
-            String ext = staged.mimeType().contains("png") ? "png" : (staged.mimeType().contains("webp") ? "webp" : "jpg");
-            String inputStorageKey = "ai/inputs/" + userId + "/" + uploadId + "." + ext;
-
-            ProviderAdapter provider = providerRegistry.get();
-
-            InitialAiRequestData initData = txTemplate.execute(status -> {
-                User u = userRepository.lockById(userId)
-                        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
-                if (!u.isActive()) {
-                    throw new ApiException(HttpStatus.FORBIDDEN, "Account is not active.");
-                }
-                if (creditCost > 0) {
-                    u.deductAiCredits(creditCost);
-                    userRepository.saveAndFlush(u);
-                }
-
-                Model3D model;
-                if (request.projectId() != null) {
-                    model = model3DRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(request.projectId(), userId)
-                            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Project not found."));
-                } else {
-                    model = model3DRepository.saveAndFlush(new Model3D(
-                            userId,
-                            modelName,
-                            prompt,
-                            ModelType.AI_GENERATOR,
-                            ModelOriginType.AI,
-                            "PRIVATE"
-                    ));
-                }
-
-                AiRequest aiRequest = aiRequestRepository.saveAndFlush(new AiRequest(
-                        userId,
-                        model.getModelId(),
-                        null,
-                        "IMAGE_TO_3D",
-                        "GENERATE",
-                        prompt,
-                        inputStorageKey,
-                        provider.name(),
-                        null,
-                        creditCost,
-                        "PENDING"
-                ));
-
-                return new InitialAiRequestData(aiRequest, model, creditCost);
-            });
-
-            String providerJobId = null;
-            Exception providerError = null;
-            try {
-                providerJobId = provider.submitImage(staged.data(), staged.mimeType(), normConfig);
-            } catch (Exception e) {
-                providerError = e;
-            }
-
-            final String finalJobId = providerJobId;
-            final Exception finalError = providerError;
-
-            txTemplate.executeWithoutResult(status -> {
-                AiRequest aiReq = aiRequestRepository.lockByIdAndUserId(initData.aiRequest().getAiRequestId(), userId)
-                        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI request not found."));
-                if (finalJobId != null && !finalJobId.isBlank()) {
-                    aiReq.markProcessing(finalJobId);
-                    aiRequestRepository.saveAndFlush(aiReq);
-                } else {
-                    if (isExplicitProviderRejection(finalError)) {
-                        aiReq.markFailed("Provider rejected task: " + finalError.getMessage());
-                        refundAiCreditsOnce(aiReq, userId, "Provider rejected task");
-                    } else {
-                        aiReq.setFailureReason("PROVIDER_TIMEOUT: Task submitted to provider but acknowledgement was lost or timed out.");
-                    }
-                    aiRequestRepository.saveAndFlush(aiReq);
-                }
-            });
-
-            return detail(userId, initData.aiRequest().getAiRequestId());
-        }
-
-        GenerateTextRequest textReq = new GenerateTextRequest(request.name(), request.prompt(), request.config());
-        return generateText(userId, textReq);
+        return aiTaskService.createUnifiedTask(userId, request);
     }
 
-    @Transactional
+    @Override
     public AiTaskDetailResponse refresh(int userId, int requestId) {
-        return txTemplate.execute(txStatus -> {
-            AiRequest request = aiRequestRepository.lockByIdAndUserId(requestId, userId)
-                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI request not found."));
-
-            if ("SUCCESS".equals(request.getStatus()) || "FAILED".equals(request.getStatus())) {
-                return detail(userId, requestId);
-            }
-
-            String externalId = request.getProviderJobReference();
-            if (externalId == null || externalId.isBlank()) {
-                // Task has no provider reference (e.g. server restarted or timeout occurred)
-                return detail(userId, requestId);
-            }
-
-            ProviderAdapter provider = providerRegistry.get(request.getProviderName());
-            ProviderTask task;
-            try {
-                task = provider.getTask(externalId, request.getRequestType());
-            } catch (Exception e) {
-                log.warn("Failed to check provider task status for request {}: {}", requestId, e.getMessage());
-                return detail(userId, requestId);
-            }
-
-            Model3D model = model3DRepository.findById(request.getModelId())
-                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Associated 3D model not found."));
-
-            if (task.isSuccess()) {
-                completeGeneration(request, model, provider, task);
-            } else if ("FAILED".equals(task.status()) || "CANCELED".equals(task.status())) {
-                request.markFailed(task.errorMessage() != null ? task.errorMessage() : "Provider generation " + task.status());
-                refundAiCreditsOnce(request, userId, "Task failed on provider: " + request.getFailureReason());
-                aiRequestRepository.saveAndFlush(request);
-                auditLogRepository.save(new AuditLog(
-                        userId, "AI_REQUEST_FAILED", "AI_REQUEST",
-                        requestId, "Reason: " + request.getFailureReason(), null
-                ));
-            } else {
-                // Provider is active and processing. If there was a temporary timeout note, clear it
-                if (request.getFailureReason() != null && request.getFailureReason().startsWith("PROVIDER_TIMEOUT")) {
-                    request.setFailureReason(null);
-                    aiRequestRepository.saveAndFlush(request);
-                }
-            }
-
-            return detail(userId, requestId);
-        });
+        return aiTaskService.refresh(userId, requestId);
     }
 
-    @Transactional
+    @Override
     public AiTaskDetailResponse cancel(int userId, int requestId) {
-        return txTemplate.execute(txStatus -> {
-            AiRequest request = aiRequestRepository.lockByIdAndUserId(requestId, userId)
-                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI request not found."));
-
-            if ("SUCCESS".equals(request.getStatus())) {
-                throw new ApiException(HttpStatus.CONFLICT, "Cannot cancel already completed generation task.");
-            }
-            if ("FAILED".equals(request.getStatus())) {
-                return detail(userId, requestId);
-            }
-
-            ProviderAdapter provider = providerRegistry.get(request.getProviderName());
-            if (request.getProviderJobReference() != null && !request.getProviderJobReference().isBlank()) {
-                // Check provider status first to safely resolve SUCCESS vs CANCEL race
-                ProviderTask task = null;
-                try {
-                    task = provider.getTask(request.getProviderJobReference(), request.getRequestType());
-                } catch (Exception e) {
-                    log.warn("Failed to check provider task status during cancel: {}", e.getMessage());
-                }
-
-                if (task != null && task.isSuccess()) {
-                    // Provider completed before cancellation arrived: finalize generation without refund
-                    Model3D model = model3DRepository.findById(request.getModelId()).orElse(null);
-                    if (model != null) {
-                        completeGeneration(request, model, provider, task);
-                    }
-                    return detail(userId, requestId);
-                }
-
-                boolean cancelConfirmed = true;
-                try {
-                    provider.cancel(request.getProviderJobReference(), request.getRequestType());
-                } catch (Exception e) {
-                    log.warn("Provider cancellation returned error: {}", e.getMessage());
-                    if (e instanceof com.project.w_3d_world.features.ai.provider.ProviderException pe && pe.isRetryable()) {
-                        cancelConfirmed = false;
-                    }
-                }
-
-                if (!cancelConfirmed) {
-                    request.setFailureReason("CANCEL_PENDING_PROVIDER_CONFIRMATION");
-                    aiRequestRepository.saveAndFlush(request);
-                    return detail(userId, requestId);
-                }
-            }
-
-            request.markFailed("Cancelled by user");
-            refundAiCreditsOnce(request, userId, "User initiated cancellation");
-            aiRequestRepository.saveAndFlush(request);
-
-            auditLogRepository.save(new AuditLog(
-                    userId, "AI_REQUEST_CANCELLED", "AI_REQUEST",
-                    requestId, "User initiated cancellation", null
-            ));
-
-            return detail(userId, requestId);
-        });
+        return aiTaskService.cancel(userId, requestId);
     }
 
-    private void completeGeneration(AiRequest request, Model3D model, ProviderAdapter provider, ProviderTask task) {
-        // Idempotency: if a ModelVersion for this ai_request_id already exists, skip duplicate creation
-        if (request.getAiRequestId() != null && modelVersionRepository.findByAiRequestId(request.getAiRequestId()).isPresent()) {
-            log.info("Model version for AI request #{} already exists; skipping duplicate generation", request.getAiRequestId());
-            request.markSuccess();
-            aiRequestRepository.saveAndFlush(request);
-            return;
-        }
-
-        byte[] glbBytes = provider.downloadGlb(task.glbUrl());
-        if (glbBytes == null || glbBytes.length == 0) {
-            request.markFailed("Downloaded GLB model is empty.");
-            aiRequestRepository.saveAndFlush(request);
-            return;
-        }
-
-        int nextVersion = modelVersionRepository.findTopByModelIdOrderByVersionNumberDesc(model.getModelId())
-                .map(v -> v.getVersionNumber() + 1)
-                .orElse(1);
-
-        ModelVersion version = modelVersionRepository.saveAndFlush(new ModelVersion(
-                model.getModelId(),
-                null,
-                request.getAiRequestId(),
-                request.getUserId(),
-                nextVersion,
-                ModelSourceType.AI_GENERATED,
-                "Generated by " + provider.name()
-        ));
-
-        StoredModelFile stored;
-        try (InputStream in = new ByteArrayInputStream(glbBytes)) {
-            stored = storageService.store(
-                    in,
-                    "model.glb",
-                    "model/gltf-binary",
-                    ModelFileRole.VIEWABLE_MODEL,
-                    model.getModelId(),
-                    version.getModelVersionId()
-            );
-        } catch (IOException e) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to store generated GLB asset: " + e.getMessage());
-        }
-
-        modelFileRepository.saveAndFlush(new ModelFile(
-                version.getModelVersionId(),
-                ModelFileRole.VIEWABLE_MODEL,
-                stored.fileFormat(),
-                stored.storageKey(),
-                stored.mimeType(),
-                stored.fileHash(),
-                stored.fileSize(),
-                true
-        ));
-
-        request.markSuccess();
-        aiRequestRepository.saveAndFlush(request);
-
-        auditLogRepository.save(new AuditLog(
-                request.getUserId(), "AI_MODEL_GENERATED", "MODEL",
-                model.getModelId(), "Generated v" + nextVersion + " from AI Request #" + request.getAiRequestId(), null
-        ));
-    }
-
-    @Transactional(readOnly = true)
+    @Override
     public List<AiTaskDetailResponse> list(int userId) {
-        List<AiRequest> requests = aiRequestRepository.findByUserIdOrderByCreatedAtDescAiRequestIdDesc(userId);
-        return requests.stream().map(r -> mapDetail(userId, r)).toList();
+        return aiTaskService.list(userId);
     }
 
-    @Transactional(readOnly = true)
+    @Override
     public List<AiTaskDetailResponse> listTasksFiltered(int userId, String status, int page, int size) {
-        int safePage = Math.max(0, page);
-        int safeSize = Math.max(1, Math.min(100, size));
-        PageRequest pageRequest = PageRequest.of(safePage, safeSize);
-
-        Page<AiRequest> requestPage;
-        if (status != null && !status.isBlank()) {
-            requestPage = aiRequestRepository.findByUserIdAndStatusOrderByCreatedAtDesc(userId, status.trim().toUpperCase(Locale.ROOT), pageRequest);
-        } else {
-            requestPage = aiRequestRepository.findByUserIdOrderByCreatedAtDescAiRequestIdDesc(userId, pageRequest);
-        }
-
-        return requestPage.getContent().stream().map(r -> mapDetail(userId, r)).toList();
+        return aiTaskService.listTasksFiltered(userId, status, page, size);
     }
 
-    @Transactional(readOnly = true)
+    @Override
     public AiTaskDetailResponse detail(int userId, int requestId) {
-        AiRequest request = aiRequestRepository.findByAiRequestIdAndUserId(requestId, userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI request not found."));
-        return mapDetail(userId, request);
+        return aiTaskService.detail(userId, requestId);
     }
 
-    private AiTaskDetailResponse mapDetail(int userId, AiRequest request) {
-        Model3D model = model3DRepository.findById(request.getModelId()).orElse(null);
-        String modelName = model != null ? model.getModelName() : "Model #" + request.getModelId();
-
-        List<ModelVersion> versions = modelVersionRepository.findByModelIdOrderByVersionNumberDesc(request.getModelId());
-        List<AiTaskDetailResponse.VersionSummary> versionSummaries = new ArrayList<>();
-        Map<String, Object> stats = null;
-
-        for (ModelVersion v : versions) {
-            ModelFile primaryFile = modelFileRepository.findPrimaryByModelVersionId(v.getModelVersionId()).orElse(null);
-            Integer fileId = primaryFile != null ? primaryFile.getFileId() : null;
-            String downloadUrl = fileId != null ? "/api/models/" + request.getModelId() + "/files/" + fileId + "/download" : null;
-
-            versionSummaries.add(new AiTaskDetailResponse.VersionSummary(
-                    v.getModelVersionId(),
-                    v.getVersionNumber(),
-                    v.getSourceType().name(),
-                    v.getCreatedAt(),
-                    fileId,
-                    downloadUrl
-            ));
-
-            if (stats == null && primaryFile != null && "GLB".equalsIgnoreCase(primaryFile.getFileFormat())) {
-                try (InputStream stream = storageService.open(primaryFile.getStorageKey())) {
-                    byte[] glbBytes = stream.readAllBytes();
-                    stats = GlbStats.of(glbBytes);
-                } catch (Exception ignored) {}
-            }
-        }
-
-        int progress = "SUCCESS".equals(request.getStatus()) ? 100 : ("PROCESSING".equals(request.getStatus()) ? 50 : 0);
-
-        return new AiTaskDetailResponse(
-                request.getAiRequestId(),
-                request.getModelId(),
-                modelName,
-                request.getRequestType(),
-                request.getActionType(),
-                request.getStatus(),
-                progress,
-                request.getProviderName(),
-                request.getProviderJobReference(),
-                request.getCreditsUsed(),
-                request.getFailureReason(),
-                request.getCreatedAt(),
-                request.getCompletedAt(),
-                versionSummaries,
-                stats
-        );
-    }
-
-    @Transactional(readOnly = true)
+    @Override
     public AiConfigOptionsResponse configOptions() {
-        List<Map<String, Object>> models = new ArrayList<>();
-        PricingService.MODELS.forEach((k, m) -> models.add(Map.of(
-                "id", k,
-                "label", m.label(),
-                "textureResolutions", List.copyOf(m.tex().keySet()),
-                "geometryResolutions", m.geo()
-        )));
-        return new AiConfigOptionsResponse(
-                providerRegistry.defaultProviderName(),
-                PricingService.PRICE_VERSION,
-                models,
-                PricingService.PRESETS,
-                Map.of("maxBytes", MAX_IMAGE_SIZE, "minSide", MIN_IMAGE_SIDE, "maxSide", MAX_IMAGE_SIDE)
-        );
+        return aiTaskService.configOptions();
     }
 
-    @Transactional(readOnly = true)
+    @Override
     public AiEstimateResponse estimate(int userId, AiEstimateRequest request) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
-
-        Map<String, Object> cfg = pricingService.normalizeConfig(request == null ? null : request.config(), request == null ? "single" : request.mode());
-        int variants = (request != null && request.variants() != null) ? request.variants() : 1;
-        Map<String, Object> est = pricingService.estimate(cfg, variants);
-
-        int total = ((Number) est.get("total")).intValue();
-        int balance = user.getAiCreditsBalance();
-
-        return new AiEstimateResponse(
-                ((Number) est.get("perVariant")).intValue(),
-                ((Number) est.get("variants")).intValue(),
-                total,
-                balance,
-                balance >= total,
-                PricingService.PRICE_VERSION,
-                cfg
-        );
+        return aiTaskService.estimate(userId, request);
     }
 
-    @Transactional(readOnly = true)
-    public AiWalletResponse wallet(int userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
-        List<AiRequest> tasks = aiRequestRepository.findByUserIdOrderByCreatedAtDescAiRequestIdDesc(userId);
-        long successful = tasks.stream().filter(t -> "SUCCESS".equals(t.getStatus())).count();
-        return new AiWalletResponse(user.getAiCreditsBalance(), tasks.size(), successful);
-    }
-
-    @Transactional
-    public AiWalletResponse topup(int userId, AiTopupRequest request) {
-        if (request == null || request.amount() == null || request.amount() <= 0) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Amount must be a positive integer.");
-        }
-        boolean isProduction = environment != null && environment.acceptsProfiles(Profiles.of("prod", "production"));
-        if (isProduction || !demoTopupEnabled) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Demo credit top-up is disabled in production environments.");
-        }
-
-        User user = userRepository.lockById(userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
-        user.addAiCredits(request.amount());
-        userRepository.saveAndFlush(user);
-
-        auditLogRepository.save(new AuditLog(
-                userId, "AI_CREDITS_DEMO_TOPUP", "USER",
-                userId, "Added " + request.amount() + " credits via demo topup", null
-        ));
-
-        return wallet(userId);
-    }
-
-    public AiUploadResponse uploadSourceImage(int userId, MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Image file is required.");
-        }
-        if (file.getSize() > MAX_IMAGE_SIZE) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Image exceeds maximum allowed size of 20 MB.");
-        }
-
-        byte[] bytes;
-        try {
-            bytes = file.getBytes();
-        } catch (IOException e) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Failed to read image bytes.");
-        }
-
-        String mime = ImageProbe.sniffMime(bytes);
-        if (mime == null) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid image format. Supported formats: JPEG, PNG, WEBP.");
-        }
-
-        ImageProbe.Dim dim;
-        try {
-            dim = ImageProbe.dimensions(bytes, mime);
-        } catch (Exception e) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Corrupt or unreadable image file.");
-        }
-
-        if (Math.min(dim.width(), dim.height()) < MIN_IMAGE_SIDE) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Image too small. Minimum dimension is " + MIN_IMAGE_SIDE + "px.");
-        }
-        if (Math.max(dim.width(), dim.height()) > MAX_IMAGE_SIDE) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Image too large. Maximum dimension is " + MAX_IMAGE_SIDE + "px.");
-        }
-
-        String originalName = file.getOriginalFilename() == null ? "image." + mime.substring(6) : file.getOriginalFilename();
-        String uploadId = UUID.randomUUID().toString();
-        String ext = mime.contains("png") ? "png" : (mime.contains("webp") ? "webp" : "jpg");
-        String storageKey = "staging/" + userId + "/" + uploadId + "." + ext;
-
-        // Save into bounded staged uploads memory store
-        stagedUploads.put(uploadId, new StagedUpload(uploadId, userId, originalName, mime, file.getSize(), bytes, Instant.now()));
-
-        // Evict expired staged uploads (older than 2 hours or if map exceeds 500)
-        if (stagedUploads.size() > 500) {
-            Instant cutoff = Instant.now().minus(java.time.Duration.ofHours(2));
-            stagedUploads.entrySet().removeIf(e -> e.getValue().createdAt().isBefore(cutoff));
-        }
-
-        auditLogRepository.save(new AuditLog(
-                userId, "AI_IMAGE_UPLOADED", "UPLOAD",
-                userId, "Uploaded " + originalName + " (" + file.getSize() + " bytes)", null
-        ));
-
-        String downloadUrl = "/api/ai-studio/uploads/" + uploadId + "/file";
-        return new AiUploadResponse(
-                uploadId,
-                storageKey,
-                originalName,
-                file.getSize(),
-                mime,
-                downloadUrl,
-                Instant.now()
-        );
-    }
-
-    @Transactional(readOnly = true)
-    public List<AiUploadResponse> listUploads(int userId) {
-        List<AiUploadResponse> result = new ArrayList<>();
-
-        // 1. Staged uploads belonging to this authenticated user
-        stagedUploads.values().stream()
-                .filter(s -> s.userId() == userId)
-                .sorted(Comparator.comparing(StagedUpload::createdAt).reversed())
-                .forEach(s -> result.add(new AiUploadResponse(
-                        s.uploadId(),
-                        "staging/" + userId + "/" + s.uploadId(),
-                        s.filename(),
-                        s.fileSize(),
-                        s.mimeType(),
-                        "/api/ai-studio/uploads/" + s.uploadId() + "/file",
-                        s.createdAt()
-                )));
-
-        // 2. Durable uploads attached to user's AI requests
-        List<AiRequest> requests = aiRequestRepository.findByUserIdAndInputImageStorageKeyIsNotNullOrderByCreatedAtDesc(userId);
-        for (AiRequest r : requests) {
-            String key = r.getInputImageStorageKey();
-            String filename = key.substring(key.lastIndexOf('/') + 1);
-            String mime = filename.endsWith(".png") ? "image/png" : (filename.endsWith(".webp") ? "image/webp" : "image/jpeg");
-            String uploadIdentifier = "req-" + r.getAiRequestId();
-            result.add(new AiUploadResponse(
-                    uploadIdentifier,
-                    key,
-                    filename,
-                    null,
-                    mime,
-                    "/api/ai-studio/uploads/" + uploadIdentifier + "/file",
-                    r.getCreatedAt()
-            ));
-        }
-        return result;
-    }
-
-    @Transactional(readOnly = true)
-    public AuthorizedModelDownload downloadUploadFile(int userId, String uploadId) {
-        if (uploadId == null || uploadId.isBlank()) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Upload asset not found.");
-        }
-
-        // 1. Check staged uploads
-        StagedUpload staged = stagedUploads.get(uploadId);
-        if (staged != null) {
-            if (staged.userId() != userId) {
-                throw new ApiException(HttpStatus.FORBIDDEN, "Access denied to upload asset.");
-            }
-            return new AuthorizedModelDownload(
-                    new ByteArrayInputStream(staged.data()),
-                    staged.filename(),
-                    staged.mimeType(),
-                    staged.fileSize()
-            );
-        }
-
-        // 2. Check durable AI request uploads (support both "123" and "req-123")
-        Integer requestId = null;
-        String rawId = uploadId.startsWith("req-") ? uploadId.substring(4) : uploadId;
-        try {
-            requestId = Integer.parseInt(rawId);
-        } catch (NumberFormatException ignored) {}
-
-        if (requestId != null) {
-            AiRequest req = aiRequestRepository.findByAiRequestIdAndUserId(requestId, userId)
-                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Upload not found or access denied."));
-            if (req.getInputImageStorageKey() == null) {
-                throw new ApiException(HttpStatus.NOT_FOUND, "No image file attached to this task.");
-            }
-            String key = req.getInputImageStorageKey();
-            try {
-                InputStream is = storageService.open(key);
-                String mime = key.endsWith(".png") ? "image/png" : (key.endsWith(".webp") ? "image/webp" : "image/jpeg");
-                String filename = key.substring(key.lastIndexOf('/') + 1);
-                return new AuthorizedModelDownload(is, filename, mime, null);
-            } catch (Exception e) {
-                throw new ApiException(HttpStatus.NOT_FOUND, "Underlying image asset not found in storage.");
-            }
-        }
-
-        throw new ApiException(HttpStatus.NOT_FOUND, "Upload asset not found.");
-    }
-
-    @Transactional(readOnly = true)
-    public List<AiProjectSummaryResponse> listProjects(int userId) {
-        List<Model3D> models = model3DRepository.findAll().stream()
-                .filter(m -> Objects.equals(m.getOwnerUserId(), userId)
-                        && m.getDeletedAt() == null
-                        && (m.getModelType() == ModelType.AI_GENERATOR || m.getOriginType() == ModelOriginType.AI))
-                .sorted(Comparator.comparing(Model3D::getCreatedAt).reversed())
-                .toList();
-
-        List<AiProjectSummaryResponse> results = new ArrayList<>();
-        for (Model3D m : models) {
-            ModelVersion latest = modelVersionRepository.findTopByModelIdOrderByVersionNumberDesc(m.getModelId()).orElse(null);
-            int latestVer = latest != null ? latest.getVersionNumber() : 1;
-            Integer primaryFileId = null;
-            String downloadUrl = null;
-            Map<String, Object> stats = null;
-
-            if (latest != null) {
-                ModelFile f = modelFileRepository.findPrimaryByModelVersionId(latest.getModelVersionId()).orElse(null);
-                if (f != null) {
-                    primaryFileId = f.getFileId();
-                    downloadUrl = "/api/ai/assets/" + f.getFileId() + "/file";
-                    if ("GLB".equalsIgnoreCase(f.getFileFormat())) {
-                        try (InputStream s = storageService.open(f.getStorageKey())) {
-                            stats = GlbStats.of(s.readAllBytes());
-                        } catch (Exception ignored) {}
-                    }
-                }
-            }
-
-            results.add(new AiProjectSummaryResponse(
-                    m.getModelId(),
-                    m.getModelName(),
-                    m.getDescription(),
-                    m.getVisibility(),
-                    latestVer,
-                    primaryFileId,
-                    downloadUrl,
-                    m.getCreatedAt(),
-                    m.getUpdatedAt(),
-                    stats
-            ));
-        }
-        return results;
-    }
-
-    @Transactional(readOnly = true)
-    public AiProjectDetailResponse getProject(int userId, int modelId) {
-        Model3D model = model3DRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(modelId, userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI project not found."));
-
-        List<ModelVersion> versions = modelVersionRepository.findByModelIdOrderByVersionNumberDesc(modelId);
-        List<AiTaskDetailResponse.VersionSummary> versionSummaries = new ArrayList<>();
-        Map<String, Object> stats = null;
-
-        for (ModelVersion v : versions) {
-            ModelFile pf = modelFileRepository.findPrimaryByModelVersionId(v.getModelVersionId()).orElse(null);
-            Integer fileId = pf != null ? pf.getFileId() : null;
-            String downloadUrl = fileId != null ? "/api/ai/assets/" + fileId + "/file" : null;
-            versionSummaries.add(new AiTaskDetailResponse.VersionSummary(
-                    v.getModelVersionId(),
-                    v.getVersionNumber(),
-                    v.getSourceType().name(),
-                    v.getCreatedAt(),
-                    fileId,
-                    downloadUrl
-            ));
-            if (stats == null && pf != null && "GLB".equalsIgnoreCase(pf.getFileFormat())) {
-                try (InputStream s = storageService.open(pf.getStorageKey())) {
-                    stats = GlbStats.of(s.readAllBytes());
-                } catch (Exception ignored) {}
-            }
-        }
-
-        List<AiRequest> requests = aiRequestRepository.findByModelIdOrderByCreatedAtDesc(modelId);
-        List<AiProjectDetailResponse.AiTaskSummary> taskSummaries = requests.stream().map(r ->
-                new AiProjectDetailResponse.AiTaskSummary(
-                        r.getAiRequestId(),
-                        r.getRequestType(),
-                        r.getActionType(),
-                        r.getStatus(),
-                        r.getPrompt(),
-                        r.getProviderName(),
-                        r.getCreditsUsed(),
-                        r.getCreatedAt(),
-                        r.getCompletedAt()
-                )
-        ).toList();
-
-        return new AiProjectDetailResponse(
-                model.getModelId(),
-                model.getModelName(),
-                model.getDescription(),
-                model.getVisibility(),
-                model.getCreatedAt(),
-                model.getUpdatedAt(),
-                versionSummaries,
-                taskSummaries,
-                stats
-        );
-    }
-
-    @Transactional
-    public AiProjectDetailResponse updateProject(int userId, int modelId, UpdateAiProjectRequest request) {
-        Model3D model = model3DRepository.findOwnedActiveByIdForUpdate(modelId, userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI project not found."));
-
-        if (request != null) {
-            model.updateMetadata(request.name(), request.description(), request.visibility());
-            model3DRepository.saveAndFlush(model);
-            auditLogRepository.save(new AuditLog(
-                    userId, "AI_PROJECT_UPDATED", "MODEL",
-                    modelId, "Updated metadata for project " + model.getModelName(), null
-            ));
-        }
-        return getProject(userId, modelId);
-    }
-
-    @Transactional(readOnly = true)
-    public AiVersionDetailResponse getVersion(int userId, int versionId) {
-        ModelVersion version = modelVersionRepository.findById(versionId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Model version not found."));
-
-        Model3D model = model3DRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(version.getModelId(), userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Model not found or access denied."));
-
-        List<ModelFile> files = modelFileRepository.findByModelVersionIdOrderByFileIdAsc(versionId);
-        Map<String, Object> stats = null;
-        List<AiVersionDetailResponse.AiFileInfo> fileInfos = new ArrayList<>();
-
-        for (ModelFile f : files) {
-            fileInfos.add(new AiVersionDetailResponse.AiFileInfo(
-                    f.getFileId(),
-                    f.getFileRole().name(),
-                    f.getFileFormat(),
-                    f.getFileSize(),
-                    "/api/ai/assets/" + f.getFileId() + "/file"
-            ));
-            if (stats == null && "GLB".equalsIgnoreCase(f.getFileFormat())) {
-                try (InputStream s = storageService.open(f.getStorageKey())) {
-                    stats = GlbStats.of(s.readAllBytes());
-                } catch (Exception ignored) {}
-            }
-        }
-
-        return new AiVersionDetailResponse(
-                version.getModelVersionId(),
-                version.getModelId(),
-                version.getParentVersionId(),
-                version.getVersionNumber(),
-                version.getSourceType().name(),
-                version.getChangeNote(),
-                version.getCreatedAt(),
-                fileInfos,
-                stats
-        );
-    }
-
-    @Transactional(readOnly = true)
-    public AiDimensionsResponse computeDimensions(int userId, int versionId, AiDimensionsRequest request) {
-        ModelVersion version = modelVersionRepository.findById(versionId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Version not found."));
-        model3DRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(version.getModelId(), userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Model not found or access denied."));
-
-        ModelFile glbFile = modelFileRepository.findPrimaryByModelVersionId(versionId)
-                .filter(f -> "GLB".equalsIgnoreCase(f.getFileFormat()))
-                .orElse(null);
-
-        Map<String, Object> stats = null;
-        if (glbFile != null) {
-            try (InputStream stream = storageService.open(glbFile.getStorageKey())) {
-                stats = GlbStats.of(stream.readAllBytes());
-            } catch (Exception e) {
-                log.warn("Failed to compute dimensions for version {}: {}", versionId, e.getMessage());
-            }
-        }
-
-        Map<String, Object> computedDims = new LinkedHashMap<>();
-        Map<String, Object> boundingBox = new LinkedHashMap<>();
-        Map<String, Object> meshStats = new LinkedHashMap<>();
-
-        if (stats != null) {
-            Object bbox = stats.get("boundingBox");
-            if (bbox instanceof Map<?, ?> bboxMap) {
-                bboxMap.forEach((k, v) -> boundingBox.put(String.valueOf(k), v));
-            }
-            Object dims = stats.get("dimensions");
-            if (dims instanceof Map<?, ?> dimMap) {
-                dimMap.forEach((k, v) -> computedDims.put(String.valueOf(k), v));
-            }
-            meshStats.put("triangles", stats.get("triangles"));
-            meshStats.put("vertices", stats.get("vertices"));
-        }
-
-        String note = "Dimensions computed directly from GLB mesh geometry. Persistent user overrides are constrained by the 48-table schema.";
-        return new AiDimensionsResponse(versionId, computedDims, boundingBox, meshStats, note);
-    }
-
-    @Transactional(readOnly = true)
-    public AiExportResponse exportVersion(int userId, int versionId, AiExportRequest request) {
-        String format = (request != null && request.format() != null) ? request.format().trim().toUpperCase(Locale.ROOT) : "GLB";
-        ModelVersion version = modelVersionRepository.findById(versionId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Version not found."));
-        model3DRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(version.getModelId(), userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Model not found or access denied."));
-
-        if (!"GLB".equalsIgnoreCase(format)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Format '" + format + "' is currently unsupported for export. Only native 'GLB' is supported.");
-        }
-
-        ModelFile primaryGlb = modelFileRepository.findByModelVersionIdOrderByFileIdAsc(versionId).stream()
-                .filter(f -> "GLB".equalsIgnoreCase(f.getFileFormat()))
-                .findFirst()
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No GLB file found for version " + versionId));
-
-        String downloadUrl = "/api/ai/assets/" + primaryGlb.getFileId() + "/file";
-        return new AiExportResponse(
-                primaryGlb.getFileId(),
-                primaryGlb.getFileFormat(),
-                primaryGlb.getFileSize(),
-                downloadUrl,
-                primaryGlb.getFileHash(),
-                Instant.now()
-        );
-    }
-
-    @Transactional(readOnly = true)
-    public AuthorizedModelDownload downloadAsset(int userId, int fileId) {
-        ModelFile file = modelFileRepository.findById(fileId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Asset file not found."));
-        ModelVersion version = modelVersionRepository.findById(file.getModelVersionId())
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Model version not found."));
-        Model3D model = model3DRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(version.getModelId(), userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Model not found or access denied."));
-        return downloadService.openAuthorizedDownload(userId, model.getModelId(), fileId);
-    }
-
+    @Override
     public Map<String, Object> handleMeshyWebhook(Map<String, Object> payload, String secret) {
-        if (webhookSecret == null || webhookSecret.isBlank()) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Meshy webhook is disabled: unconfigured secret and unverified provider signature. Enforce client polling.");
-        }
-        if (secret == null || !java.security.MessageDigest.isEqual(
-                webhookSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                secret.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid webhook secret.");
-        }
-        if (payload == null || !payload.containsKey("id")) {
-            return Map.of("status", "IGNORED", "message", "No task id found in payload");
-        }
+        return aiTaskService.handleMeshyWebhook(payload, secret);
+    }
 
-        String externalTaskId = String.valueOf(payload.get("id"));
-        log.info("Received Meshy webhook for task {}", externalTaskId);
+    // ---------------- AiWalletService delegations ----------------
 
-        List<AiRequest> matching = aiRequestRepository.findAll().stream()
-                .filter(r -> Objects.equals(r.getProviderJobReference(), externalTaskId)
-                        && ("PENDING".equals(r.getStatus()) || "PROCESSING".equals(r.getStatus())))
-                .toList();
+    @Override
+    public AiWalletResponse wallet(int userId) {
+        return aiWalletService.wallet(userId);
+    }
 
-        if (matching.isEmpty()) {
-            return Map.of("status", "ACKNOWLEDGED", "matched", false);
-        }
+    @Override
+    public AiWalletResponse topup(int userId, AiTopupRequest request) {
+        return aiWalletService.topup(userId, request);
+    }
 
-        for (AiRequest req : matching) {
-            try {
-                refresh(req.getUserId(), req.getAiRequestId());
-            } catch (Exception e) {
-                log.warn("Error refreshing task from webhook: {}", e.getMessage());
-            }
-        }
+    // ---------------- AiUploadService delegations ----------------
 
-        return Map.of("status", "PROCESSED", "matched", true, "count", matching.size());
+    @Override
+    public AiUploadResponse uploadSourceImage(int userId, MultipartFile file) {
+        return aiUploadService.uploadSourceImage(userId, file);
+    }
+
+    @Override
+    public List<AiUploadResponse> listUploads(int userId) {
+        return aiUploadService.listUploads(userId);
+    }
+
+    @Override
+    public AuthorizedModelDownload downloadUploadFile(int userId, String uploadId) {
+        return aiUploadService.downloadUploadFile(userId, uploadId);
+    }
+
+    // ---------------- AiProjectService delegations ----------------
+
+    @Override
+    public List<AiProjectSummaryResponse> listProjects(int userId) {
+        return aiProjectService.listProjects(userId);
+    }
+
+    @Override
+    public AiProjectDetailResponse getProject(int userId, int modelId) {
+        return aiProjectService.getProject(userId, modelId);
+    }
+
+    @Override
+    public AiProjectDetailResponse updateProject(int userId, int modelId, UpdateAiProjectRequest request) {
+        return aiProjectService.updateProject(userId, modelId, request);
+    }
+
+    @Override
+    public AiVersionDetailResponse getVersion(int userId, int versionId) {
+        return aiProjectService.getVersion(userId, versionId);
+    }
+
+    @Override
+    public AiDimensionsResponse computeDimensions(int userId, int versionId, AiDimensionsRequest request) {
+        return aiProjectService.computeDimensions(userId, versionId, request);
+    }
+
+    // ---------------- AiExportService delegations ----------------
+
+    @Override
+    public AiExportResponse exportVersion(int userId, int versionId, AiExportRequest request) {
+        return aiExportService.exportVersion(userId, versionId, request);
+    }
+
+    @Override
+    public AuthorizedModelDownload downloadAsset(int userId, int fileId) {
+        return aiExportService.downloadAsset(userId, fileId);
     }
 }

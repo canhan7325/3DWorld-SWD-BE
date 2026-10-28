@@ -228,10 +228,15 @@ class AiStudioCompatibilityApiTest {
         assertEquals(5004, glbExport.fileId());
         assertEquals("GLB", glbExport.format());
 
-        // STL format throws 400 (no fake conversion!)
+        // When conversion is not configured/available, throws 400 with FORMAT_UNAVAILABLE
         ApiException ex = assertThrows(ApiException.class, () -> service.exportVersion(userId, versionId, new AiExportRequest("STL")));
         assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
-        assertTrue(ex.getMessage().contains("unsupported"));
+        assertTrue(ex.getMessage().contains("FORMAT_UNAVAILABLE"));
+
+        // Invalid format throws 400 unsupported
+        ApiException exInvalid = assertThrows(ApiException.class, () -> service.exportVersion(userId, versionId, new AiExportRequest("INVALID_XYZ")));
+        assertEquals(HttpStatus.BAD_REQUEST, exInvalid.getStatus());
+        assertTrue(exInvalid.getMessage().contains("Unsupported export format"));
     }
 
     @Test

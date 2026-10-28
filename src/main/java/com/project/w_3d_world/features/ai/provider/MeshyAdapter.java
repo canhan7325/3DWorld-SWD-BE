@@ -105,6 +105,7 @@ public class MeshyAdapter implements ProviderAdapter {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("mode", "preview");
         body.put("prompt", prompt);
+        body.put("target_formats", List.of("glb", "stl", "obj", "fbx"));
         if (config != null) {
             if (config.containsKey("aiModel")) body.put("ai_model", config.get("aiModel"));
             if (config.containsKey("topology")) body.put("topology", config.get("topology"));
@@ -126,7 +127,7 @@ public class MeshyAdapter implements ProviderAdapter {
         body.put("image_url", dataUri);
         body.put("should_texture", true);
         body.put("enable_pbr", true);
-        body.put("target_formats", List.of("glb"));
+        body.put("target_formats", List.of("glb", "stl", "obj", "fbx"));
         if (config != null) {
             if (config.containsKey("aiModel")) body.put("ai_model", config.get("aiModel"));
             if (config.containsKey("geometryResolution")) body.put("geometry_resolution", config.get("geometryResolution"));
@@ -158,20 +159,35 @@ public class MeshyAdapter implements ProviderAdapter {
         if (urls.isObject()) {
             urls.properties().forEach(entry -> {
                 if (entry.getValue().isTextual()) {
-                    modelUrls.put(entry.getKey(), entry.getValue().asText());
+                    modelUrls.put(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue().asText());
                 }
             });
         }
         String thumb = res.path("thumbnail_url").asText(null);
-        return new ProviderTask(status, progress, modelUrls, thumb, null, error);
+        List<Map<String, String>> textureUrls = new ArrayList<>();
+        JsonNode textures = res.path("texture_urls");
+        if (textures.isArray()) {
+            for (JsonNode tNode : textures) {
+                if (tNode.isObject()) {
+                    Map<String, String> tMap = new LinkedHashMap<>();
+                    tNode.properties().forEach(entry -> {
+                        if (entry.getValue().isTextual()) {
+                            tMap.put(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue().asText());
+                        }
+                    });
+                    if (!tMap.isEmpty()) textureUrls.add(tMap);
+                }
+            }
+        }
+        return new ProviderTask(status, progress, modelUrls, thumb, textureUrls.isEmpty() ? null : textureUrls, error);
     }
 
     @Override
-    public byte[] downloadGlb(String glbUrlOrReference) {
-        if (glbUrlOrReference == null || glbUrlOrReference.isBlank()) {
-            throw new ProviderException("INVALID_GLB_URL", "Provider did not provide a valid GLB url.");
+    public byte[] downloadAsset(String urlOrReference) {
+        if (urlOrReference == null || urlOrReference.isBlank()) {
+            throw new ProviderException("INVALID_ASSET_URL", "Provider did not provide a valid asset url.");
         }
-        URI uri = URI.create(glbUrlOrReference);
+        URI uri = URI.create(urlOrReference);
         String host = uri.getHost();
         if (host == null || !allowedAssetHosts.contains(host.toLowerCase(Locale.ROOT))) {
             throw new ProviderException("UNTRUSTED_ASSET_HOST", "Asset host not in allowed hosts: " + host);
@@ -180,7 +196,7 @@ public class MeshyAdapter implements ProviderAdapter {
             HttpRequest req = HttpRequest.newBuilder(uri).timeout(Duration.ofMinutes(2)).GET().build();
             HttpResponse<InputStream> res = http.send(req, HttpResponse.BodyHandlers.ofInputStream());
             if (res.statusCode() != 200) {
-                throw new ProviderException("DOWNLOAD_FAILED", "Failed to download GLB, HTTP " + res.statusCode());
+                throw new ProviderException("DOWNLOAD_FAILED", "Failed to download asset, HTTP " + res.statusCode());
             }
             try (InputStream in = res.body(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
                 byte[] buf = new byte[8192];
@@ -188,7 +204,7 @@ public class MeshyAdapter implements ProviderAdapter {
                 while ((n = in.read(buf)) != -1) {
                     out.write(buf, 0, n);
                     if (out.size() > 50_000_000) {
-                        throw new ProviderException("FILE_TOO_LARGE", "Generated GLB exceeds 50MB limit.");
+                        throw new ProviderException("FILE_TOO_LARGE", "Generated asset exceeds 50MB limit.");
                     }
                 }
                 return out.toByteArray();
@@ -196,8 +212,13 @@ public class MeshyAdapter implements ProviderAdapter {
         } catch (ProviderException e) {
             throw e;
         } catch (Exception e) {
-            throw new ProviderException("DOWNLOAD_ERROR", "Error downloading model from provider: " + e.getMessage());
+            throw new ProviderException("DOWNLOAD_ERROR", "Error downloading asset from provider: " + e.getMessage());
         }
+    }
+
+    @Override
+    public byte[] downloadGlb(String glbUrlOrReference) {
+        return downloadAsset(glbUrlOrReference);
     }
 
     @Override

@@ -170,4 +170,37 @@ public final class Procedural {
         }
         return buf.array();
     }
+public static byte[] makeObj(String seed) {
+        Geo g = build(seed);
+        StringBuilder sb = new StringBuilder();
+        sb.append("# 3DWorld AI Studio mock OBJ\n");
+        sb.append("o ProceduralModel\n");
+        for (int i = 0; i < g.pos.length; i += 3) {
+            sb.append(String.format(java.util.Locale.ROOT, "v %.6f %.6f %.6f\n", g.pos[i], g.pos[i + 1], g.pos[i + 2]));
+        }
+        for (int i = 0; i < g.nrm.length; i += 3) {
+            sb.append(String.format(java.util.Locale.ROOT, "vn %.6f %.6f %.6f\n", g.nrm[i], g.nrm[i + 1], g.nrm[i + 2]));
+        }
+        sb.append("s 1\n");
+        int tris = g.idx.length / 3;
+        for (int t = 0; t < tris; t++) {
+            int v1 = g.idx[t * 3] + 1;
+            int v2 = g.idx[t * 3 + 1] + 1;
+            int v3 = g.idx[t * 3 + 2] + 1;
+            sb.append("f ").append(v1).append("//").append(v1).append(" ")
+              .append(v2).append("//").append(v2).append(" ")
+              .append(v3).append("//").append(v3).append("\n");
+        }
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    public static byte[] makeFbx(String seed) {
+        byte[] prefix = "Kaydara FBX Binary  \0\u001a\0".getBytes(StandardCharsets.US_ASCII);
+        ByteBuffer buf = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN);
+        buf.put(prefix);
+        buf.putInt(7400);
+        for (int i = 0; i < 13; i++) buf.put((byte) 0);
+        while (buf.hasRemaining()) buf.put((byte) 0);
+        return buf.array();
+    }
 }
