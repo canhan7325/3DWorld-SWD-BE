@@ -5,4 +5,6 @@ import com.project.w_3d_world.features.shipping.entity.Shipment;
 
 public interface ShipmentAutoCreationService {
     Shipment createForOrder(PhysicalOrder order);
+
+    void handOver(PhysicalOrder order, int sellerId);
 }

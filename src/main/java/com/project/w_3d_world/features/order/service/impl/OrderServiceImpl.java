@@ -219,6 +219,19 @@ public class OrderServiceImpl implements OrderService {
             throw new ApiException(
                     HttpStatus.FORBIDDEN, "You cannot process this order.");
         }
+        if ("SHIPPED".equals(status)) {
+            if (!owner) throw new ApiException(HttpStatus.FORBIDDEN, "Only the storefront owner can hand over this order.");
+            if ("SHIPPED".equals(order.getStatus())) return response(order);
+            if (!"PROCESSING".equals(order.getStatus()) || !"CONSUMED".equals(order.getReservationStatus())) {
+                throw new ApiException(HttpStatus.CONFLICT, "Only a processing order with consumed stock can be shipped.");
+            }
+            wallet.requireNoActiveRefund(orderId);
+            wallet.requireNoShippingDebt(sellerId);
+            shipmentAutoCreation.handOver(order, sellerId);
+            order.transition("SHIPPED");
+            history.save(new OrderStatusHistory(orderId, "PROCESSING", "SHIPPED", sellerId, "Seller handed parcel to carrier"));
+            return response(order);
+        }
         if (order.getStatus().equals(status)) {
             return response(order);
         }

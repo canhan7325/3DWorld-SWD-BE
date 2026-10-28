@@ -20,6 +20,7 @@ public class ShipmentAutoCreationServiceImpl implements ShipmentAutoCreationServ
     private final ShippingProvider provider;
     private final AuditLogRepository audit;
 
+    @Override
     @Transactional
     public Shipment createForOrder(PhysicalOrder order) {
         return shipments.findByPhysicalOrderId(order.getId()).orElseGet(() -> {
@@ -29,5 +30,19 @@ public class ShipmentAutoCreationServiceImpl implements ShipmentAutoCreationServ
             audit.save(new AuditLog(order.getBuyerUserId(), "SHIPMENT_AUTO_CREATED", "SHIPMENT", saved.getId(), "Shipment created automatically at checkout", saved.getTrackingNumber()));
             return saved;
         });
+    }
+    @Override
+    @Transactional
+    public void handOver(PhysicalOrder order, int sellerId) {
+        // Caller holds the order lock, so repair and handover serialize with checkout/shipment events.
+        Shipment shipment = createForOrder(order);
+        if (shipment.getStatus() != ShipmentStatus.PREPARING && shipment.getStatus() != ShipmentStatus.PENDING) {
+            throw new com.project.w_3d_world.common.exception.ApiException(org.springframework.http.HttpStatus.CONFLICT,
+                    "Shipment is already handed over or in transport.");
+        }
+        shipment.handToCarrier();
+        shipments.save(shipment);
+        audit.save(new AuditLog(sellerId, "SHIPMENT_STATUS_UPDATED", "SHIPMENT", shipment.getId(),
+                "SHIPPED", shipment.getTrackingNumber()));
     }
 }
