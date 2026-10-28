@@ -12,7 +12,8 @@ import com.project.w_3d_world.features.ai.entity.AiRequest;
 import com.project.w_3d_world.features.ai.provider.*;
 import com.project.w_3d_world.features.ai.repository.AiRequestRepository;
 import com.project.w_3d_world.features.ai.service.AiGenerationService;
-import com.project.w_3d_world.features.ai.service.impl.AiGenerationServiceImpl;
+import com.project.w_3d_world.features.ai.service.impl.*;
+
 import com.project.w_3d_world.features.ai.service.PricingService;
 import com.project.w_3d_world.features.ai.service.impl.PricingServiceImpl;
 import com.project.w_3d_world.features.audit.entity.AuditLog;
@@ -521,6 +522,11 @@ public class AiStudioPostgresIntegrationTest {
             StudioModelController.class,
             AiWebhookController.class,
             AiGenerationServiceImpl.class,
+            AiTaskServiceImpl.class,
+            AiUploadServiceImpl.class,
+            AiProjectServiceImpl.class,
+            AiExportServiceImpl.class,
+            AiWalletServiceImpl.class,
             StudioModelServiceImpl.class,
             ModelDownloadServiceImpl.class,
             PricingServiceImpl.class,

@@ -70,12 +70,14 @@ public final class ModelFileValidator {
             case "json" -> new Format(ext, "application/json", SCENE_LIMIT);
             case "png" -> new Format(ext, "image/png", PREVIEW_LIMIT);
             case "jpg", "jpeg" -> new Format(ext, "image/jpeg", PREVIEW_LIMIT);
+            case "fbx" -> new Format(ext, "application/octet-stream", MODEL_LIMIT);
+            case "zip" -> new Format(ext, "application/zip", MODEL_LIMIT);
             default -> throw new ModelStorageException(INVALID_METADATA, "Unsupported file extension.");
         };
         boolean compatible = switch (role) {
             case EDITABLE_SCENE -> ext.equals("json");
             case PREVIEW -> Set.of("png", "jpg", "jpeg").contains(ext);
-            case SOURCE_MODEL, VIEWABLE_MODEL, PRINT_MODEL -> Set.of("glb", "stl", "obj", "3mf").contains(ext);
+            case SOURCE_MODEL, VIEWABLE_MODEL, PRINT_MODEL -> Set.of("glb", "stl", "obj", "3mf", "fbx", "zip").contains(ext);
         };
         if (!compatible) {
             throw new ModelStorageException(INVALID_METADATA, "File role is incompatible with the format.");
@@ -87,6 +89,8 @@ public final class ModelFileValidator {
                 case "obj" -> Set.of("text/plain", "application/octet-stream");
                 case "3mf" -> Set.of("application/vnd.ms-package.3dmanufacturing-3dmodel+xml", "application/zip", "application/octet-stream");
                 case "glb" -> Set.of("application/octet-stream");
+                case "fbx" -> Set.of("application/octet-stream", "application/x-tgif", "model/vnd.fbx");
+                case "zip" -> Set.of("application/zip", "application/x-zip-compressed", "application/octet-stream");
                 default -> Set.of();
             };
             if (!mime.equals(format.mimeType()) && !aliases.contains(mime)) {
@@ -110,6 +114,8 @@ public final class ModelFileValidator {
                 case "json" -> json(bytes);
                 case "3mf" -> threeMf(file, bytes);
                 case "png", "jpg", "jpeg" -> image(bytes, format.extension());
+                case "fbx" -> fbx(bytes);
+                case "zip" -> zip(file, bytes);
                 default -> throw invalidContent();
             }
         } catch (ModelStorageException exception) {
@@ -434,5 +440,43 @@ public final class ModelFileValidator {
 
     private static void require(boolean valid) {
         if (!valid) throw invalidContent();
+    }
+private static void fbx(byte[] bytes) throws IOException {
+        require(bytes.length >= 27);
+        byte[] binaryPrefix = "Kaydara FBX Binary  \0\u001a\0".getBytes(StandardCharsets.US_ASCII);
+        boolean isBinary = true;
+        for (int i = 0; i < binaryPrefix.length; i++) {
+            if (bytes[i] != binaryPrefix[i]) {
+                isBinary = false;
+                break;
+            }
+        }
+        if (isBinary) {
+            ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+            buf.position(23);
+            int version = buf.getInt();
+            require(version >= 1000 && version <= 10000);
+            return;
+        }
+        try (var reader = new BufferedReader(new StringReader(utf8(bytes)))) {
+            String line = nextLine(reader);
+            require(line != null && (line.startsWith(";") || line.startsWith("FBXHeaderExtension")));
+        }
+    }
+
+    private static void zip(Path file, byte[] bytes) throws IOException {
+        require(bytes.length >= 22 && bytes[0] == 'P' && bytes[1] == 'K' && bytes[2] == 3 && bytes[3] == 4);
+        int entriesCount = 0;
+        try (ZipFile zf = new ZipFile(file.toFile())) {
+            var entries = zf.entries();
+            while (entries.hasMoreElements()) {
+                var entry = entries.nextElement();
+                String name = entry.getName();
+                require(safeEntry(name));
+                require(entry.getSize() >= 0 && entry.getSize() <= MODEL_LIMIT);
+                entriesCount++;
+            }
+        }
+        require(entriesCount > 0);
     }
 }

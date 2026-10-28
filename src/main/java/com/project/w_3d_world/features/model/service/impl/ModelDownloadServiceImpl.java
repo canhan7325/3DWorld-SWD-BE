@@ -24,13 +24,22 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ModelDownloadServiceImpl implements ModelDownloadService {
-    private static final Map<String, String> MIME_TYPES = Map.of(
-            "glb", "model/gltf-binary", "stl", "model/stl", "obj", "model/obj", "3mf", "model/3mf",
-            "json", "application/json", "png", "image/png", "jpg", "image/jpeg", "jpeg", "image/jpeg");
+    private static final Map<String, String> MIME_TYPES = Map.ofEntries(
+            Map.entry("glb", "model/gltf-binary"),
+            Map.entry("stl", "model/stl"),
+            Map.entry("obj", "model/obj"),
+            Map.entry("3mf", "model/3mf"),
+            Map.entry("json", "application/json"),
+            Map.entry("png", "image/png"),
+            Map.entry("jpg", "image/jpeg"),
+            Map.entry("jpeg", "image/jpeg"),
+            Map.entry("fbx", "application/octet-stream"),
+            Map.entry("zip", "application/zip"));
     private static final Map<String, String> EXTENSIONS = Map.ofEntries(
             Map.entry("glb", "glb"), Map.entry("stl", "stl"), Map.entry("obj", "obj"),
             Map.entry("3mf", "3mf"), Map.entry("json", "json"), Map.entry("png", "png"),
-            Map.entry("jpg", "jpg"), Map.entry("jpeg", "jpeg"));
+            Map.entry("jpg", "jpg"), Map.entry("jpeg", "jpeg"),
+            Map.entry("fbx", "fbx"), Map.entry("zip", "zip"));
 
     private final Model3DRepository modelRepository;
     private final ModelVersionRepository versionRepository;
