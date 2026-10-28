@@ -60,7 +60,7 @@ public class Shipment {
     public void markPreparing() { status = ShipmentStatus.PREPARING; updatedAt = Instant.now(); }
 
     public void handToCarrier() {
-        status = ShipmentStatus.HANDED_TO_CARRIER;
+        status = ShipmentStatus.SHIPPED;
         updatedAt = Instant.now();
         shippedAt = Instant.now();
     }
@@ -70,7 +70,7 @@ public class Shipment {
     public void markReceived() { status = ShipmentStatus.RECEIVED; updatedAt = Instant.now(); }
 
     public void markShipped() {
-        status = ShipmentStatus.HANDED_TO_CARRIER;
+        status = ShipmentStatus.SHIPPED;
         updatedAt = Instant.now();
         shippedAt = Instant.now();
     }

@@ -53,6 +53,20 @@ public class ShipmentServiceImpl implements ShipmentService {
     @Override @Transactional(readOnly = true)
     public List<ShipmentResponse> listForSeller(int sellerId, int orderId) { sellerOrder(sellerId, orderId); return shipments.findByPhysicalOrderIdOrderByCreatedAtDesc(orderId).stream().map(ShipmentResponse::from).toList(); }
 
+    @Override @Transactional(readOnly = true)
+    public List<ShipmentResponse> listForStaff(int staffId, int page, int size, String status) {
+        authorization.requireRole(staffId, RoleCode.ADMIN, RoleCode.PRINT_STAFF);
+        if (page < 0 || size < 1 || size > 100) throw ApiException.invalidRequest("Invalid pagination.");
+        List<Shipment> rows;
+        if (status == null || status.isBlank()) rows = shipments.findAllByOrderByCreatedAtDesc();
+        else {
+            try { rows = shipments.findByStatusOrderByCreatedAtDesc(ShipmentStatus.valueOf(status.trim().toUpperCase(Locale.ROOT))); }
+            catch (IllegalArgumentException e) { throw ApiException.invalidRequest("Unsupported shipment status."); }
+        }
+        int from = Math.min(page * size, rows.size());
+        return rows.subList(from, Math.min(from + size, rows.size())).stream().map(ShipmentResponse::from).toList();
+    }
+
     @Override @Transactional
     public ShipmentResponse applyEvent(int actorId, int shipmentId, String event) {
         Shipment shipment = shipments.findById(shipmentId).orElseThrow(() -> ApiException.invalidRequest("Shipment does not exist."));
@@ -65,14 +79,14 @@ public class ShipmentServiceImpl implements ShipmentService {
         boolean staff = !owner && hasStaffRole(actorId);
         if (!owner && !staff) throw new ApiException(HttpStatus.FORBIDDEN, "You cannot update this shipment.");
         if (shipment.getStatus() == next) return ShipmentResponse.from(shipment);
-        if (owner && !Set.of(ShipmentStatus.PREPARING, ShipmentStatus.HANDED_TO_CARRIER).contains(next))
-            throw new ApiException(HttpStatus.FORBIDDEN, "Seller may only update PREPARING or HANDED_TO_CARRIER.");
-        if (staff && next == ShipmentStatus.PREPARING) throw ApiException.invalidRequest("Preparing is set automatically; staff cannot move a shipment backwards.");
+        if (owner && !Set.of(ShipmentStatus.PREPARING, ShipmentStatus.SHIPPED).contains(next))
+            throw new ApiException(HttpStatus.FORBIDDEN, "Seller may only update PREPARING or SHIPPED.");
+        if (staff && (next == ShipmentStatus.PREPARING || next == ShipmentStatus.SHIPPED)) throw ApiException.invalidRequest("Seller must set SHIPPED after handing the parcel to the carrier; Staff starts at IN_TRANSIT.");
         validateTransition(shipment.getStatus(), next, owner);
         String fromOrder = order.getStatus();
         switch (next) {
             case PREPARING -> shipment.markPreparing();
-            case HANDED_TO_CARRIER -> { shipment.handToCarrier(); if ("PROCESSING".equals(order.getStatus())) order.transition("SHIPPED"); }
+            case SHIPPED -> { shipment.handToCarrier(); if ("PROCESSING".equals(order.getStatus())) order.transition("SHIPPED"); }
             case IN_TRANSIT -> shipment.markInTransit();
             case ARRIVED_AT_DESTINATION -> shipment.markArrived();
             case DELIVERED -> { shipment.markDelivered(); if ("SHIPPED".equals(order.getStatus())) { order.transition("DELIVERED"); order.deliveredPolicy(); } }
@@ -88,18 +102,17 @@ public class ShipmentServiceImpl implements ShipmentService {
 
     private void validateTransition(ShipmentStatus from, ShipmentStatus to, boolean owner) {
         if (owner) {
-            if (from == ShipmentStatus.PREPARING && to == ShipmentStatus.HANDED_TO_CARRIER) return;
-            throw ApiException.invalidRequest("Seller shipment status must move from PREPARING to HANDED_TO_CARRIER.");
+            if (from == ShipmentStatus.PREPARING && to == ShipmentStatus.SHIPPED) return;
+            throw ApiException.invalidRequest("Seller shipment status must move from PREPARING to SHIPPED.");
         }
         boolean allowed = switch (from) {
-            case PREPARING -> to == ShipmentStatus.HANDED_TO_CARRIER;
-            case HANDED_TO_CARRIER -> to == ShipmentStatus.IN_TRANSIT || to == ShipmentStatus.FAILED || to == ShipmentStatus.RETURNED;
+            case PREPARING -> false;
+            case SHIPPED, HANDED_TO_CARRIER -> to == ShipmentStatus.IN_TRANSIT || to == ShipmentStatus.FAILED || to == ShipmentStatus.RETURNED;
             case IN_TRANSIT -> to == ShipmentStatus.ARRIVED_AT_DESTINATION || to == ShipmentStatus.FAILED || to == ShipmentStatus.RETURNED;
             case ARRIVED_AT_DESTINATION -> to == ShipmentStatus.DELIVERED || to == ShipmentStatus.RETURNED || to == ShipmentStatus.FAILED;
             case DELIVERED -> to == ShipmentStatus.RECEIVED || to == ShipmentStatus.RETURNED;
             case FAILED -> to == ShipmentStatus.IN_TRANSIT || to == ShipmentStatus.RETURNED;
-            case SHIPPED -> to == ShipmentStatus.IN_TRANSIT || to == ShipmentStatus.DELIVERED || to == ShipmentStatus.RETURNED;
-            case PENDING -> to == ShipmentStatus.PREPARING || to == ShipmentStatus.HANDED_TO_CARRIER;
+            case PENDING -> to == ShipmentStatus.PREPARING || to == ShipmentStatus.SHIPPED;
             default -> false;
         };
         if (!allowed) throw ApiException.invalidRequest("Shipment cannot move from " + from + " to " + to + ".");
