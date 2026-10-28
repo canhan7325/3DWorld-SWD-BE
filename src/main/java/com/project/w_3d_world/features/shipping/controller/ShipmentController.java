@@ -34,7 +34,7 @@ public class ShipmentController {
     @PostMapping("/orders/{orderId}/shipment")
     @Operation(
             summary = "Create shipment",
-            description = "Create a demo shipment and move a paid order to SHIPPED.")
+            description = "Create a demo shipment for a PROCESSING order, including accepted COD orders. Shipping does not record COD collection or settlement.")
     public ApiResponse<ShipmentResponse> create(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable int orderId,
@@ -65,7 +65,7 @@ public class ShipmentController {
     @PatchMapping("/shipments/{shipmentId}/event")
     @Operation(
             summary = "Apply shipment event",
-            description = "Apply DELIVERED, FAILED or RETURNED to a seller-owned shipment.")
+            description = "Apply DELIVERED, FAILED or RETURNED to a seller-owned shipment. RETURNED charges the seller twice the snapshotted shipping fee once; insufficient available balance becomes returnShippingDebt. No return charge for cancellation before shipment.")
     public ApiResponse<ShipmentResponse> event(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable int shipmentId,

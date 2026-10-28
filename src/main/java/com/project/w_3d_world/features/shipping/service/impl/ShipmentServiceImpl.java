@@ -36,6 +36,7 @@ public class ShipmentServiceImpl implements ShipmentService {
     private final OrderStatusHistoryRepository history;
     private final AuditLogRepository audit;
     private final EntityManager entityManager;
+    private final com.project.w_3d_world.features.wallet.service.CommissionWalletService wallet;
 
     @Override
     @Transactional
@@ -120,6 +121,7 @@ public class ShipmentServiceImpl implements ShipmentService {
             case "RETURNED" -> {
                 shipment.markReturned();
                 order.transition("RETURNED");
+                wallet.returned(order.getId(), order.getShippingFee());
             }
             default -> throw ApiException.invalidRequest("Unsupported shipment event.");
         }

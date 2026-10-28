@@ -40,6 +40,7 @@ public class StorefrontService {
     private final AuditLogRepository audit;
     private final JdbcTemplate jdbc;
     private final EntityManager entityManager;
+    private final com.project.w_3d_world.features.wallet.service.PlatformConfigService platformConfig;
 
     @Value("${app.storefront.monthly-fee:100000}")
     private BigDecimal configuredFee;
@@ -140,7 +141,7 @@ public class StorefrontService {
         }
         Instant now = Instant.now();
         Instant start = store.getExpiresAt() != null && store.getExpiresAt().isAfter(now) ? store.getExpiresAt() : now;
-        Instant end = start.atZone(ZoneOffset.UTC).plusMonths(1).toInstant();
+        Instant end = start.plusSeconds(30L * 24 * 3600);
         subscription.activate(start, end);
         store.activateUntil(end);
         if (grant.getId() == null || !grants.existsById(grant.getId()) || !grant.isActive()) {
@@ -165,14 +166,9 @@ public class StorefrontService {
     }
 
     private BigDecimal fee() {
-        var value = jdbc.query("SELECT config_value FROM platform_configs WHERE config_key='STOREFRONT_MONTHLY_FEE'",
-                (rs, row) -> rs.getString(1)).stream().findFirst();
-        BigDecimal fee;
-        try {
-            fee = value.map(BigDecimal::new).orElse(configuredFee);
-        } catch (NumberFormatException exception) {
-            throw new IllegalStateException("Invalid storefront fee configuration.");
-        }
+        BigDecimal fee = platformConfig.decimal(
+                com.project.w_3d_world.features.wallet.service.PlatformConfigService.STOREFRONT_MONTHLY_FEE,
+                new BigDecimal("99000"));
         if (fee == null || fee.signum() <= 0 || fee.stripTrailingZeros().scale() > 0) {
             throw new IllegalStateException("Storefront monthly fee must be a positive whole VND amount.");
         }

@@ -21,7 +21,8 @@ public final class OrderResponses {
                                 Integer autoConfirmHoursSnapshot, String shippingAddressSnapshot,
                                 String cancellationReason, Instant cancelledAt, Instant deliveredAt,
                                 Instant receivedAt, Instant refundDeadlineAt, Instant autoConfirmDueAt,
-                                Integer shippingPackageCount, Integer shippingWeightGrams) {
+                                Integer shippingPackageCount, Integer shippingWeightGrams,
+                                String paymentMethod, boolean onlinePaymentRequired) {
         public static OrderResponse from(PhysicalOrder order, List<OrderItemResponse> items) {
             return new OrderResponse(order.getId(), order.getStorefrontId(), order.getSubtotal(),
                     order.getShippingFee(), order.getTotalAmount(), order.getStatus(),
@@ -30,7 +31,9 @@ public final class OrderResponses {
                     order.getCommissionRateSnapshot(), order.getRefundWindowHoursSnapshot(),
                     order.getAutoConfirmHoursSnapshot(), order.getAddressSnapshot(), order.getCancellationReason(),
                     order.getCancelledAt(), order.getDeliveredAt(), order.getReceivedAt(), order.getRefundDeadlineAt(),
-                    order.getAutoConfirmDueAt(), order.getShippingPackageCount(), order.getShippingWeightGrams());
+                    order.getAutoConfirmDueAt(), order.getShippingPackageCount(), order.getShippingWeightGrams(),
+                    order.getPaymentMethodSnapshot(), !order.isCod()
+                            && ("CREATED".equals(order.getStatus()) || "PENDING_PAYMENT".equals(order.getStatus())));
         }
     }
 }

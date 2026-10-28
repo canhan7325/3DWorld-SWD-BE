@@ -157,7 +157,8 @@ public class PhysicalOrder {
 
     private boolean allowed(String next) {
         return switch (status) {
-            case "CREATED" -> next.equals("PENDING_PAYMENT") || next.equals("CANCELLED");
+            case "CREATED" -> next.equals("PENDING_PAYMENT") || next.equals("CANCELLED")
+                    || (isCod() && next.equals("PROCESSING"));
             case "PENDING_PAYMENT" -> next.equals("PAID") || next.equals("CANCELLED");
             case "PAID" -> next.equals("PROCESSING") || next.equals("CANCELLED");
             case "PROCESSING" -> next.equals("SHIPPED") || next.equals("CANCELLED");
@@ -224,5 +225,14 @@ public class PhysicalOrder {
     }
     public void markShippingQuoteVersion(String version) {
         shippingCalculationVersion = version;
+    }
+
+    public boolean isCod() {
+        return "COD".equals(paymentMethodSnapshot);
+    }
+
+    public void selectCod() {
+        if (!"CREATED".equals(status)) throw new IllegalStateException("Select payment method before order processing.");
+        paymentMethodSnapshot = "COD";
     }
 }
