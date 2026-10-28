@@ -59,19 +59,22 @@ public class ShippingQuoteService {
         for (var entry : input.shops().entrySet()) {
             List<PricedPlan> priced = new ArrayList<>();
             for (Plan plan : packing.suggest(entry.getValue(), input.boxes(), config.paddingCm())) {
-                List<GhtkClient.Fee> fees = new ArrayList<>();
-                for (Parcel parcel : plan.parcels()) {
-                    String key = entry.getKey() + "|" + parcel.totalWeight() + "|" + parcel.declaredValue() + "|" + parcel.fragile();
-                    GhtkClient.Fee fee = cache.get(key);
-                    if (fee == null) {
-                        if (++calls[0] > 20) throw ApiException.invalidRequest("Too many parcels to quote at once. Split this checkout.");
-                        fee = carrier.quote(input.origins().get(entry.getKey()), input.destination(),
-                                parcel.totalWeight(), parcel.declaredValue(), parcel.fragile());
-                        cache.put(key, fee);
-                    }
-                    fees.add(fee);
+                // One storefront is one shipment charge. Packing may produce multiple parcels,
+                // but the carrier is quoted once for the consolidated shop weight/value.
+                int totalWeight = plan.parcels().stream().mapToInt(Parcel::totalWeight).sum();
+                BigDecimal declaredValue = plan.parcels().stream().map(Parcel::declaredValue)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                boolean fragile = plan.parcels().stream().anyMatch(Parcel::fragile);
+                String key = entry.getKey() + "|" + totalWeight + "|" + declaredValue + "|" + fragile;
+                GhtkClient.Fee fee = cache.get(key);
+                if (fee == null) {
+                    if (++calls[0] > 20) throw ApiException.invalidRequest("Too many storefronts to quote at once. Split this checkout.");
+                    fee = carrier.quote(input.origins().get(entry.getKey()), input.destination(),
+                            totalWeight, declaredValue, fragile);
+                    cache.put(key, fee);
                 }
-                BigDecimal shipping = fees.stream().map(GhtkClient.Fee::total).reduce(BigDecimal.ZERO, BigDecimal::add);
+                List<GhtkClient.Fee> fees = List.of(fee);
+                BigDecimal shipping = fee.total();
                 BigDecimal packaging = plan.parcels().stream().map(Parcel::packagingCost).reduce(BigDecimal.ZERO, BigDecimal::add);
                 priced.add(new PricedPlan(plan, fees, shipping, packaging, shipping.add(packaging)));
             }
@@ -89,7 +92,7 @@ public class ShippingQuoteService {
         var selected = shops.stream().map(shop -> new ShopQuote(shop.storefrontId(), shop.selected(), List.of())).toList();
         String token = signer.sign(new SignedQuote(userId, input.fingerprint(), expiry, VERSION, selected));
         BigDecimal total = shops.stream().map(shop -> shop.selected().shippingFee()).reduce(BigDecimal.ZERO, BigDecimal::add);
-        return new QuoteResponse(token, expiry, VERSION, "INDEPENDENT_PARCELS", total, shops);
+        return new QuoteResponse(token, expiry, VERSION, "ONE_SHOP_ONE_FEE", total, shops);
     }
 
     /** Called after checkout locks variant rows; no external HTTP occurs while stock is locked. */
