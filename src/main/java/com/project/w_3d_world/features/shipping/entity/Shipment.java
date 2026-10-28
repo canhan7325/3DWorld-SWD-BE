@@ -6,6 +6,8 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -33,8 +35,9 @@ public class Shipment {
     @Column(name = "tracking_number")
     private String trackingNumber;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String status = "PENDING";
+    private ShipmentStatus status = ShipmentStatus.PREPARING;
 
     @Column(name = "shipped_at")
     private Instant shippedAt;
@@ -54,25 +57,37 @@ public class Shipment {
         this.trackingNumber = trackingNumber;
     }
 
+    public void markPreparing() { status = ShipmentStatus.PREPARING; updatedAt = Instant.now(); }
+
+    public void handToCarrier() {
+        status = ShipmentStatus.HANDED_TO_CARRIER;
+        updatedAt = Instant.now();
+        shippedAt = Instant.now();
+    }
+
+    public void markInTransit() { status = ShipmentStatus.IN_TRANSIT; updatedAt = Instant.now(); }
+    public void markArrived() { status = ShipmentStatus.ARRIVED_AT_DESTINATION; updatedAt = Instant.now(); }
+    public void markReceived() { status = ShipmentStatus.RECEIVED; updatedAt = Instant.now(); }
+
     public void markShipped() {
-        status = "SHIPPED";
+        status = ShipmentStatus.HANDED_TO_CARRIER;
         updatedAt = Instant.now();
         shippedAt = Instant.now();
     }
 
     public void markDelivered() {
-        status = "DELIVERED";
+        status = ShipmentStatus.DELIVERED;
         updatedAt = Instant.now();
         deliveredAt = Instant.now();
     }
 
     public void markFailed() {
-        status = "FAILED";
+        status = ShipmentStatus.FAILED;
         updatedAt = Instant.now();
     }
 
     public void markReturned() {
-        status = "RETURNED";
+        status = ShipmentStatus.RETURNED;
         updatedAt = Instant.now();
     }
 }

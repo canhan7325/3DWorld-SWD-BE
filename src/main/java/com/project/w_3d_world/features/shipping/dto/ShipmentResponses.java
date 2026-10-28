@@ -11,7 +11,7 @@ public final class ShipmentResponses {
             Integer physicalOrderId,
             String carrierName,
             String trackingNumber,
-            String status,
+            com.project.w_3d_world.features.shipping.entity.ShipmentStatus status,
             Instant shippedAt,
             Instant deliveredAt,
             Instant createdAt) {

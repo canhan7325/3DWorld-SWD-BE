@@ -20,6 +20,10 @@ public class OrderPaymentService {
 
     @Transactional
     public void verified(PaymentTransaction transaction) {
+        if ("TOPUP".equals(transaction.getTransactionType()) && "SUCCESS".equals(transaction.getStatus())) {
+            wallet.topUpVerified(transaction);
+            return;
+        }
         if (transaction.getSubscriptionId() != null) {
             storefronts.activateVerifiedPayment(transaction);
             return;

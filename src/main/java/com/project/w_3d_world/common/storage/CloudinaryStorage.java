@@ -50,6 +50,10 @@ public class CloudinaryStorage {
         return uploadImage("Products", "product_" + productId, bytes, contentType);
     }
 
+    public UploadedImage uploadRefund(int orderId, byte[] bytes, String contentType) {
+        return uploadImage("Refund", "order_" + orderId, bytes, contentType);
+    }
+
     private UploadedImage uploadImage(String folder, String prefix, byte[] bytes, String contentType) {
         var parameters = new TreeMap<String, String>();
         // folder supports fixed-folder accounts; asset_folder selects the Media Library

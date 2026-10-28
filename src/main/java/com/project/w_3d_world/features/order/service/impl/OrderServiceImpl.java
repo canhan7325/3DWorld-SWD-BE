@@ -55,6 +55,7 @@ public class OrderServiceImpl implements OrderService {
     private final CodPaymentService cod;
     private final com.project.w_3d_world.features.wallet.service.PlatformConfigService platformConfig;
     private final com.project.w_3d_world.features.wallet.service.CommissionWalletService wallet;
+    private final com.project.w_3d_world.features.shipping.service.ShipmentAutoCreationService shipmentAutoCreation;
 
     @Value("${app.order.reservation-ttl-minutes:15}")
     private long reservationTtlMinutes;
@@ -161,6 +162,7 @@ public class OrderServiceImpl implements OrderService {
                     appliedCommissionRate, refundHours, autoConfirmHours);
             if (codCheckout) order.selectCod();
             orders.saveAndFlush(order);
+            shipmentAutoCreation.createForOrder(order);
             if (codCheckout) {
                 cod.create(order);
             } else {
@@ -220,6 +222,7 @@ public class OrderServiceImpl implements OrderService {
         if (order.getStatus().equals(status)) {
             return response(order);
         }
+        wallet.requireNoActiveRefund(orderId);
         // COD acceptance does not fabricate a paid fact; online orders still require verified payment.
         boolean codReady = order.isCod() && "CREATED".equals(order.getStatus());
         if (!"PROCESSING".equals(status) || !("PAID".equals(order.getStatus()) || codReady)) {
