@@ -198,8 +198,9 @@ public class StudioModelServiceImpl implements StudioModelService {
                         "/api/studio/projects/" + modelId + "/files/" + f.getFileId() + "/download"
                 ));
 
-                if (sceneData == null && v.getModelVersionId().equals(latest.getModelVersionId())
-                        && f.getFileRole() == ModelFileRole.EDITABLE_SCENE) {
+                // Versions are ordered newest first: use the newest version that has a scene.
+                // Snapshot versions only hold an STL file, so "latest" alone would load an empty scene.
+                if (sceneData == null && f.getFileRole() == ModelFileRole.EDITABLE_SCENE) {
                     try (InputStream stream = storageService.open(f.getStorageKey())) {
                         sceneData = parseScene(stream);
                     } catch (Exception e) {
@@ -690,7 +691,7 @@ public class StudioModelServiceImpl implements StudioModelService {
                 snapVersion.getVersionNumber(),
                 computedHash,
                 meta != null ? meta.dims() : null,
-                meta != null ? meta.parts() : 1,
+                meta != null && meta.parts() != null ? meta.parts() : Integer.valueOf(1),
                 meta != null ? meta.triangles() : null,
                 "READY",
                 meta != null && meta.unit() != null ? meta.unit() : "mm",
