@@ -31,7 +31,8 @@ import com.project.w_3d_world.features.studio.controller.StudioModelController;
 import com.project.w_3d_world.features.studio.dto.request.*;
 import com.project.w_3d_world.features.studio.dto.response.*;
 import com.project.w_3d_world.features.studio.service.StudioModelService;
-import com.project.w_3d_world.features.studio.service.impl.StudioModelServiceImpl;
+import com.project.w_3d_world.features.studio.service.impl.*;
+
 import com.project.w_3d_world.features.user.entity.User;
 import com.project.w_3d_world.features.user.repository.UserRepository;
 import org.junit.jupiter.api.*;
@@ -528,6 +529,9 @@ public class AiStudioPostgresIntegrationTest {
             AiExportServiceImpl.class,
             AiWalletServiceImpl.class,
             StudioModelServiceImpl.class,
+            StudioProjectServiceImpl.class,
+            StudioVersionServiceImpl.class,
+            StudioSnapshotServiceImpl.class,
             ModelDownloadServiceImpl.class,
             PricingServiceImpl.class,
             JwtService.class,
