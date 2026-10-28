@@ -112,6 +112,7 @@ public class SecurityConfig {
                                                 "/api/catalog", "/api/catalog/**",
                                                 "/api/health",
                                                 "/api/webhooks/meshy",
+                                                "/error",
                                                 "/api/auth/register",
                                                 "/api/auth/login",
                                                 "/api/auth/verify-email",

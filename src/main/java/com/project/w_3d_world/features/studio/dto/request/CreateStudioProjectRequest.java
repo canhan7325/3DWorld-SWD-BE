@@ -11,5 +11,17 @@ public record CreateStudioProjectRequest(
         String name,
 
         @Schema(description = "Initial scene graph data (nodes, meshes, lights, camera)")
-        Object scene
-) {}
+        Object scene,
+
+        @Schema(description = "Optional thumbnail base64 data URL (PNG/JPEG) under 2MB")
+        String thumbnail,
+
+        String unit,
+        String preset,
+        String templateId,
+        String icon
+) {
+    public CreateStudioProjectRequest(String name, Object scene) {
+        this(name, scene, null, "mm", null, null, null);
+    }
+}

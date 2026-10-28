@@ -35,6 +35,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -261,5 +262,105 @@ class AiStudioCompatibilityApiTest {
         assertEquals(1, uploads.size());
         assertEquals("input.png", uploads.get(0).fileName());
         assertEquals("image/png", uploads.get(0).mimeType());
+    }
+
+    private static byte[] validPngBytes() {
+        byte[] b = new byte[512];
+        b[0] = (byte)0x89; b[1] = 'P'; b[2] = 'N'; b[3] = 'G';
+        b[4] = 0x0d; b[5] = 0x0a; b[6] = 0x1a; b[7] = 0x0a;
+        b[8] = 0; b[9] = 0; b[10] = 0; b[11] = 13;
+        b[12] = 'I'; b[13] = 'H'; b[14] = 'D'; b[15] = 'R';
+        b[16] = 0; b[17] = 0; b[18] = 0; b[19] = 100;
+        b[20] = 0; b[21] = 0; b[22] = 0; b[23] = 100;
+        b[24] = 8; b[25] = 6; b[26] = 0; b[27] = 0; b[28] = 0;
+        return b;
+    }
+
+    @Test
+    @DisplayName("A1: Unified task with imageId, consent, and pricing check succeeds")
+    void createUnifiedTask_ImageTo3D_ValidFlow() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "source.png", "image/png", validPngBytes());
+        AiUploadResponse uploaded = service.uploadSourceImage(userId, file);
+        assertNotNull(uploaded.uploadId());
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+        when(userRepository.lockById(userId)).thenReturn(Optional.of(testUser));
+
+        Model3D aiModel = new Model3D(userId, "Unified Model", "Prompt", ModelType.AI_GENERATOR, ModelOriginType.AI, "PRIVATE");
+        setField(aiModel, "modelId", 2005);
+        when(model3DRepository.saveAndFlush(any())).thenReturn(aiModel);
+
+        AiRequest savedReq = new AiRequest(userId, 2005, null, "IMAGE_TO_3D", "GENERATE", "Prompt", "key", "MOCK", "job-1", 20, "SUCCESS");
+        setField(savedReq, "aiRequestId", 3010);
+        when(aiRequestRepository.saveAndFlush(any())).thenReturn(savedReq);
+        when(aiRequestRepository.lockByIdAndUserId(eq(3010), eq(userId))).thenReturn(Optional.of(savedReq));
+        when(aiRequestRepository.findByAiRequestIdAndUserId(3010, userId)).thenReturn(Optional.of(savedReq));
+        when(modelVersionRepository.findByModelIdOrderByVersionNumberDesc(2005)).thenReturn(List.of());
+
+        CreateAiUnifiedTaskRequest request = new CreateAiUnifiedTaskRequest(
+                "single", "Unified Model", "Prompt", Map.of(), 1,
+                List.of(uploaded.uploadId()), null, true, "pv-2026-10-22", 30
+        );
+
+        AiTaskDetailResponse resp = service.createUnifiedTask(userId, request);
+        assertNotNull(resp);
+        assertEquals(3010, resp.aiRequestId());
+    }
+
+    @Test
+    @DisplayName("A1: Unified task requires consent (throws 400 CONSENT_REQUIRED)")
+    void createUnifiedTask_ConsentRequired() {
+        CreateAiUnifiedTaskRequest request = new CreateAiUnifiedTaskRequest(
+                "single", "No Consent", "Prompt", Map.of(), 1,
+                List.of("up-123"), null, false, "pv-2026-10-22", 20
+        );
+        ApiException ex = assertThrows(ApiException.class, () -> service.createUnifiedTask(userId, request));
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
+        assertTrue(ex.getMessage().contains("CONSENT_REQUIRED"));
+    }
+
+    @Test
+    @DisplayName("A1: Unified task with unknown imageId throws 400 INVALID_IMAGES")
+    void createUnifiedTask_InvalidImage() {
+        CreateAiUnifiedTaskRequest request = new CreateAiUnifiedTaskRequest(
+                "single", "Bad Image", "Prompt", Map.of(), 1,
+                List.of("non-existent-uuid"), null, true, "pv-2026-10-22", 20
+        );
+        ApiException ex = assertThrows(ApiException.class, () -> service.createUnifiedTask(userId, request));
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
+        assertTrue(ex.getMessage().contains("INVALID_IMAGES"));
+    }
+
+    @Test
+    @DisplayName("A1: Unified task with mismatched quotedCredits throws 409 PRICE_CHANGED")
+    void createUnifiedTask_PriceChanged() {
+        MockMultipartFile file = new MockMultipartFile("file", "source.png", "image/png", validPngBytes());
+        AiUploadResponse uploaded = service.uploadSourceImage(userId, file);
+
+        CreateAiUnifiedTaskRequest request = new CreateAiUnifiedTaskRequest(
+                "single", "Mismatched Price", "Prompt", Map.of(), 1,
+                List.of(uploaded.uploadId()), null, true, "pv-2026-10-22", 999
+        );
+        ApiException ex = assertThrows(ApiException.class, () -> service.createUnifiedTask(userId, request));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatus());
+        assertTrue(ex.getMessage().contains("PRICE_CHANGED"));
+    }
+
+    @Test
+    @DisplayName("A1: Unified task with insufficient credits throws 402 INSUFFICIENT_CREDITS")
+    void createUnifiedTask_InsufficientCredits() {
+        MockMultipartFile file = new MockMultipartFile("file", "source.png", "image/png", validPngBytes());
+        AiUploadResponse uploaded = service.uploadSourceImage(userId, file);
+
+        User poorUser = new User("poor@example.com", "hash", "0123456789", "Poor User");
+        when(userRepository.findById(userId)).thenReturn(Optional.of(poorUser));
+
+        CreateAiUnifiedTaskRequest request = new CreateAiUnifiedTaskRequest(
+                "single", "No Money", "Prompt", Map.of(), 1,
+                List.of(uploaded.uploadId()), null, true, "pv-2026-10-22", 30
+        );
+        ApiException ex = assertThrows(ApiException.class, () -> service.createUnifiedTask(userId, request));
+        assertEquals(HttpStatus.PAYMENT_REQUIRED, ex.getStatus());
+        assertTrue(ex.getMessage().contains("INSUFFICIENT_CREDITS"));
     }
 }

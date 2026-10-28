@@ -33,6 +33,8 @@ public interface StudioModelService {
 
     StudioSnapshotResponse createSnapshot(int userId, int modelId, CreateStudioSnapshotRequest request);
 
+    StudioSnapshotResponse createSnapshotWithFile(int userId, int modelId, CreateStudioSnapshotRequest meta, org.springframework.web.multipart.MultipartFile file);
+
     StudioSnapshotResponse updateSnapshot(int userId, int modelId, String snapshotCode, UpdateStudioSnapshotRequest request);
 
     List<StudioProjectDetailResponse.StudioVersionSummary> getVersions(int userId, int modelId);
