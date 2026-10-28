@@ -58,7 +58,7 @@ public class OrderController {
     }
 
     @PatchMapping("/{orderId}/status")
-    @Operation(summary = "Update order status", description = "Set PROCESSING to accept a CREATED COD order without payment, or process a PAID online order. Stock is consumed once.")
+    @Operation(summary = "Update order status", description = "Set PROCESSING to accept a CREATED COD order without payment, or process a PAID online order. Stock is consumed once. Seller may also set SHIPPED from PROCESSING; a missing shipment is created and synchronized atomically.")
     public ApiResponse<OrderResponse> status(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable int orderId,

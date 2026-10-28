@@ -86,7 +86,14 @@ public class ShipmentServiceImpl implements ShipmentService {
         String fromOrder = order.getStatus();
         switch (next) {
             case PREPARING -> shipment.markPreparing();
-            case SHIPPED -> { shipment.handToCarrier(); if ("PROCESSING".equals(order.getStatus())) order.transition("SHIPPED"); }
+            case SHIPPED -> {
+                if (!"PROCESSING".equals(order.getStatus()) || !"CONSUMED".equals(order.getReservationStatus()))
+                    throw ApiException.invalidRequest("Order must be PROCESSING with consumed stock before handover.");
+                wallet.requireNoActiveRefund(order.getId());
+                wallet.requireNoShippingDebt(actorId);
+                shipment.handToCarrier();
+                order.transition("SHIPPED");
+            }
             case IN_TRANSIT -> shipment.markInTransit();
             case ARRIVED_AT_DESTINATION -> shipment.markArrived();
             case DELIVERED -> { shipment.markDelivered(); if ("SHIPPED".equals(order.getStatus())) { order.transition("DELIVERED"); order.deliveredPolicy(); } }
