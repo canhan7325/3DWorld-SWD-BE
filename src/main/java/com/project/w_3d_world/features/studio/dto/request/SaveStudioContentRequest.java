@@ -8,5 +8,12 @@ public record SaveStudioContentRequest(
         @Min(value = 1, message = "baseRevision must be at least 1.")
         Integer baseRevision,
         Object scene,
-        String note
-) {}
+        String note,
+        String name,
+        Object nodes,
+        String thumbnail
+) {
+    public SaveStudioContentRequest(Integer baseRevision, Object scene, String note) {
+        this(baseRevision, scene, note, null, null, null);
+    }
+}

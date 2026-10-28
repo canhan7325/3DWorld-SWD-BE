@@ -16,8 +16,10 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -146,7 +148,7 @@ public class StudioModelController {
 
     @PostMapping("/projects/{modelId}/snapshots")
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Tạo một bản snapshot xuất file bất biến của scene Studio")
+    @Operation(summary = "Tạo một bản snapshot xuất file bất biến của scene Studio (JSON)")
     public ApiResponse<StudioSnapshotResponse> createSnapshot(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable Integer modelId,
@@ -154,6 +156,19 @@ public class StudioModelController {
     ) {
         int userId = ModelRequestValidation.requireUserId(user);
         return ApiResponse.created("Snapshot created successfully", studioService.createSnapshot(userId, modelId, request));
+    }
+
+    @PostMapping(value = "/projects/{modelId}/snapshots", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "Tạo snapshot kèm tệp STL do trình duyệt nướng (baked)")
+    public ApiResponse<StudioSnapshotResponse> createSnapshotMultipart(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable Integer modelId,
+            @RequestPart(value = "meta", required = false) CreateStudioSnapshotRequest meta,
+            @RequestPart("file") MultipartFile file
+    ) {
+        int userId = ModelRequestValidation.requireUserId(user);
+        return ApiResponse.created("Snapshot created successfully", studioService.createSnapshotWithFile(userId, modelId, meta, file));
     }
 
     @PatchMapping("/projects/{modelId}/snapshots/{snapshotCode}")

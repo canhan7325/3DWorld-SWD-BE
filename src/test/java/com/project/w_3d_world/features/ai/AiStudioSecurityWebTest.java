@@ -127,6 +127,39 @@ class AiStudioSecurityWebTest {
         verify(studioService).listProjects(authenticatedUserId);
     }
 
+    @Test
+    @DisplayName("0.2: Storage exception in Studio does NOT return 401 masked error, returns 500")
+    void storageException_NotMaskedAs401() throws Exception {
+        when(studioService.createProject(eq(authenticatedUserId), any()))
+                .thenThrow(new com.project.w_3d_world.features.model.exception.ModelStorageException(
+                        com.project.w_3d_world.features.model.exception.ModelStorageException.Code.CONFIGURATION,
+                        "Storage root not configured"
+                ));
+
+        mvc.perform(post("/api/studio/projects")
+                        .header("Authorization", validToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Test Project\"}"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.status").value(500))
+                .andExpect(jsonPath("$.message").value("Model storage is unavailable. Please try again later."));
+    }
+
+    @Test
+    @DisplayName("0.2: Generic unhandled exception does NOT return 401, returns 500 error envelope")
+    void unhandledException_NotMaskedAs401() throws Exception {
+        when(studioService.createProject(eq(authenticatedUserId), any()))
+                .thenThrow(new RuntimeException("Database timeout or unexpected crash"));
+
+        mvc.perform(post("/api/studio/projects")
+                        .header("Authorization", validToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Test Project\"}"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.status").value(500))
+                .andExpect(jsonPath("$.message").value("An unexpected error occurred. Please try again later."));
+    }
+
     @Configuration
     @EnableWebMvc
     @EnableWebSecurity

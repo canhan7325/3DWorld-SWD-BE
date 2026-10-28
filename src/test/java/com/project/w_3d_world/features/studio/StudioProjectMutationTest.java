@@ -27,6 +27,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -241,5 +242,85 @@ class StudioProjectMutationTest {
         when(modelVersionRepository.findByModelIdAndVersionNumber(modelId, 2)).thenReturn(Optional.of(v2));
         StudioSnapshotResponse updated = service.updateSnapshot(userId, modelId, "SNAP-5001-v2", new UpdateStudioSnapshotRequest("Updated Freeze Note"));
         assertEquals("Updated Freeze Note", updated.changeNote());
+    }
+
+    @Test
+    @DisplayName("S3: PUT /content saves scene, updates project name atomically, and saves thumbnail")
+    void saveProjectContent_AtomicNameAndThumbnail() throws Exception {
+        Model3D model = new Model3D(userId, "Original Name", "desc", ModelType.WEB_EDITOR, ModelOriginType.EDITOR, "PRIVATE");
+        setField(model, "modelId", modelId);
+        when(model3DRepository.findOwnedActiveByIdForUpdate(modelId, userId)).thenReturn(Optional.of(model));
+        when(model3DRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(modelId, userId)).thenReturn(Optional.of(model));
+
+        ModelVersion v1 = new ModelVersion(modelId, null, null, userId, 1, ModelSourceType.EDITOR_SAVE, "Initial");
+        setField(v1, "modelVersionId", 6001);
+        when(modelVersionRepository.findTopByModelIdOrderByVersionNumberDesc(modelId)).thenReturn(Optional.of(v1));
+
+        ModelVersion v2 = new ModelVersion(modelId, 6001, null, userId, 2, ModelSourceType.EDITOR_SAVE, "v2");
+        setField(v2, "modelVersionId", 6002);
+        when(modelVersionRepository.saveAndFlush(any(ModelVersion.class))).thenReturn(v2);
+        when(modelVersionRepository.findByModelIdOrderByVersionNumberDesc(modelId)).thenReturn(List.of(v2, v1));
+
+        StoredModelFile storedScene = new StoredModelFile("models/5001/v2/scene.json", "json", "application/json", 128L, "hash");
+        when(storageService.store(any(), eq("scene.json"), any(), eq(ModelFileRole.EDITABLE_SCENE), eq(modelId), eq(6002)))
+                .thenReturn(storedScene);
+
+        StoredModelFile storedPreview = new StoredModelFile("models/5001/v2/preview.png", "png", "image/png", 64L, "previewHash");
+        when(storageService.store(any(), eq("preview.png"), any(), eq(ModelFileRole.PREVIEW), eq(modelId), eq(6002)))
+                .thenReturn(storedPreview);
+
+        ModelFile sceneFile = new ModelFile(6002, ModelFileRole.EDITABLE_SCENE, "JSON", storedScene.storageKey(), "application/json", "hash", 128L, true);
+        when(modelFileRepository.findByModelVersionIdOrderByFileIdAsc(6002)).thenReturn(List.of(sceneFile));
+        when(storageService.open(storedScene.storageKey())).thenReturn(new ByteArrayInputStream("{\"nodes\":[]}".getBytes(StandardCharsets.UTF_8)));
+
+        // Base64 1x1 png: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==
+        String base64Png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        SaveStudioContentRequest req = new SaveStudioContentRequest(1, Map.of("nodes", List.of()), "Save note", "New Project Name", null, base64Png);
+
+        StudioProjectDetailResponse resp = service.saveProjectContent(userId, modelId, req);
+        assertNotNull(resp);
+        assertEquals("New Project Name", model.getModelName());
+        verify(storageService).store(any(), eq("preview.png"), eq("image/png"), eq(ModelFileRole.PREVIEW), eq(modelId), eq(6002));
+    }
+
+    @Test
+    @DisplayName("S4: POST /snapshots (multipart) stores baked STL file and returns snapshot response")
+    void createSnapshotWithFile_ValidStl_Success() throws Exception {
+        Model3D model = new Model3D(userId, "Snap Model", "desc", ModelType.WEB_EDITOR, ModelOriginType.EDITOR, "PRIVATE");
+        setField(model, "modelId", modelId);
+        when(model3DRepository.findOwnedActiveByIdForUpdate(modelId, userId)).thenReturn(Optional.of(model));
+
+        ModelVersion v1 = new ModelVersion(modelId, null, null, userId, 1, ModelSourceType.EDITOR_SAVE, "Initial");
+        setField(v1, "modelVersionId", 6001);
+        when(modelVersionRepository.findTopByModelIdOrderByVersionNumberDesc(modelId)).thenReturn(Optional.of(v1));
+
+        ModelVersion v2 = new ModelVersion(modelId, 6001, null, userId, 2, ModelSourceType.EDITOR_SAVE, "Snap STL");
+        setField(v2, "modelVersionId", 6002);
+        when(modelVersionRepository.saveAndFlush(any(ModelVersion.class))).thenReturn(v2);
+
+        byte[] stlBytes = "solid test\nfacet normal 0 0 0\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid test\n"
+                .getBytes(StandardCharsets.UTF_8);
+        MockMultipartFile file = new MockMultipartFile("file", "scene.stl", "model/stl", stlBytes);
+
+        StoredModelFile storedStl = new StoredModelFile("models/5001/v2/snapshot-v2.stl", "stl", "model/stl", (long) stlBytes.length, "hash");
+        when(storageService.store(any(), eq("snapshot-v2.stl"), eq("model/stl"), eq(ModelFileRole.SOURCE_MODEL), eq(modelId), eq(6002)))
+                .thenReturn(storedStl);
+
+        ModelFile snapFile = new ModelFile(6002, ModelFileRole.SOURCE_MODEL, "stl", storedStl.storageKey(), "model/stl", "hash", (long) stlBytes.length, true);
+        setField(snapFile, "fileId", 7003);
+        when(modelFileRepository.saveAndFlush(any(ModelFile.class))).thenReturn(snapFile);
+
+        CreateStudioSnapshotRequest meta = new CreateStudioSnapshotRequest("Baked STL snapshot", "stl", 1, null, List.of(60.0, 24.0, 4.0), 3, 1840, List.of("THIN_WALL"), "2026-10", "mm");
+        StudioSnapshotResponse resp = service.createSnapshotWithFile(userId, modelId, meta, file);
+
+        assertNotNull(resp);
+        assertEquals("SNAP-5001-v2", resp.snapshotCode());
+        assertEquals("stl", resp.fileFormat());
+        assertNotNull(resp.meshHash());
+        assertEquals(3, resp.parts());
+        assertEquals(1840, resp.triangles());
+        assertEquals("READY", resp.state());
+        assertTrue(resp.downloadUrl().contains("7003"));
+        verify(auditLogRepository).save(any(AuditLog.class));
     }
 }

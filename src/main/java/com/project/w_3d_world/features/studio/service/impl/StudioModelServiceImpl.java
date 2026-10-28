@@ -27,12 +27,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.*;
 
 @Service
@@ -159,6 +161,8 @@ public class StudioModelServiceImpl implements StudioModelService {
                 true
         ));
 
+        saveThumbnailIfPresent(userId, model.getModelId(), version.getModelVersionId(), request.thumbnail());
+
         auditLogRepository.save(new AuditLog(
                 userId, "STUDIO_PROJECT_CREATED", "MODEL",
                 model.getModelId(), "Created Studio project " + name, null
@@ -255,7 +259,7 @@ public class StudioModelServiceImpl implements StudioModelService {
         if (request == null || request.expectedVersion() < 1) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "expectedVersion must be at least 1.");
         }
-        return doSaveScene(userId, modelId, request.expectedVersion(), request.scene(), request.note());
+        return doSaveScene(userId, modelId, request.expectedVersion(), request.scene(), request.note(), null);
     }
 
     @Transactional
@@ -263,10 +267,20 @@ public class StudioModelServiceImpl implements StudioModelService {
         if (request == null || request.baseRevision() == null || request.baseRevision() < 1) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "baseRevision must be at least 1.");
         }
-        return doSaveScene(userId, modelId, request.baseRevision(), request.scene(), request.note());
+        if (request.name() != null && !request.name().isBlank()) {
+            Model3D model = model3DRepository.findOwnedActiveByIdForUpdate(modelId, userId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Studio project not found."));
+            model.updateMetadata(request.name().trim(), null, null);
+            model3DRepository.saveAndFlush(model);
+        }
+        Object scene = request.scene();
+        if (scene == null && request.nodes() != null) {
+            scene = Map.of("nodes", request.nodes());
+        }
+        return doSaveScene(userId, modelId, request.baseRevision(), scene, request.note(), request.thumbnail());
     }
 
-    private StudioProjectDetailResponse doSaveScene(int userId, int modelId, int baseRevision, Object scene, String note) {
+    private StudioProjectDetailResponse doSaveScene(int userId, int modelId, int baseRevision, Object scene, String note, String thumbnailData) {
         Model3D model = model3DRepository.findOwnedActiveByIdForUpdate(modelId, userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Studio project not found."));
 
@@ -322,6 +336,8 @@ public class StudioModelServiceImpl implements StudioModelService {
 
         model.updateMetadata(null, null, null);
         model3DRepository.saveAndFlush(model);
+
+        saveThumbnailIfPresent(userId, modelId, newVersion.getModelVersionId(), thumbnailData);
 
         auditLogRepository.save(new AuditLog(
                 userId, "STUDIO_VERSION_SAVED", "MODEL",
@@ -582,6 +598,156 @@ public class StudioModelServiceImpl implements StudioModelService {
                 snapVersion.getCreatedAt(),
                 downloadUrl
         );
+    }
+
+    @Transactional
+    public StudioSnapshotResponse createSnapshotWithFile(int userId, int modelId, CreateStudioSnapshotRequest meta, MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Snapshot STL file is required.");
+        }
+        Model3D model = model3DRepository.findOwnedActiveByIdForUpdate(modelId, userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Studio project not found."));
+
+        ModelVersion latest = modelVersionRepository.findTopByModelIdOrderByVersionNumberDesc(modelId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Project has no base version."));
+
+        int nextVer = latest.getVersionNumber() + 1;
+        String note = (meta != null && meta.note() != null && !meta.note().isBlank())
+                ? meta.note().trim()
+                : "Snapshot export v" + nextVer;
+
+        byte[] fileBytes;
+        try {
+            fileBytes = file.getBytes();
+        } catch (IOException e) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Failed to read uploaded snapshot file.");
+        }
+
+        if (fileBytes.length < 15) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid STL file: content too small.");
+        }
+
+        String computedHash;
+        try {
+            computedHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(fileBytes));
+        } catch (Exception e) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to hash snapshot file: " + e.getMessage());
+        }
+
+        ModelVersion snapVersion = modelVersionRepository.saveAndFlush(new ModelVersion(
+                modelId,
+                latest.getModelVersionId(),
+                null,
+                userId,
+                nextVer,
+                ModelSourceType.EDITOR_SAVE,
+                note
+        ));
+
+        StoredModelFile stored;
+        try (InputStream in = new ByteArrayInputStream(fileBytes)) {
+            stored = storageService.store(
+                    in,
+                    "snapshot-v" + nextVer + ".stl",
+                    "model/stl",
+                    ModelFileRole.SOURCE_MODEL,
+                    modelId,
+                    snapVersion.getModelVersionId()
+            );
+        } catch (Exception e) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to store snapshot STL file: " + e.getMessage());
+        }
+
+        ModelFile snapFile = modelFileRepository.saveAndFlush(new ModelFile(
+                snapVersion.getModelVersionId(),
+                ModelFileRole.SOURCE_MODEL,
+                stored.fileFormat(),
+                stored.storageKey(),
+                stored.mimeType(),
+                stored.fileHash(),
+                stored.fileSize(),
+                true
+        ));
+
+        auditLogRepository.save(new AuditLog(
+                userId, "STUDIO_SNAPSHOT_CREATED", "MODEL",
+                modelId, "Created STL snapshot " + snapVersion.getVersionNumber() + " (" + note + ")", null
+        ));
+
+        String code = "SNAP-" + modelId + "-v" + snapVersion.getVersionNumber();
+        String downloadUrl = "/api/studio/projects/" + modelId + "/files/" + snapFile.getFileId() + "/download";
+
+        return new StudioSnapshotResponse(
+                code,
+                modelId,
+                snapVersion.getVersionNumber(),
+                note,
+                stored.fileFormat(),
+                stored.fileSize(),
+                snapVersion.getCreatedAt(),
+                downloadUrl,
+                code,
+                snapVersion.getVersionNumber(),
+                computedHash,
+                meta != null ? meta.dims() : null,
+                meta != null ? meta.parts() : 1,
+                meta != null ? meta.triangles() : null,
+                "READY",
+                meta != null && meta.unit() != null ? meta.unit() : "mm",
+                stored.fileSize(),
+                meta != null && meta.acknowledgedWarnings() != null ? meta.acknowledgedWarnings() : List.of(),
+                meta != null ? meta.consentVersion() : "2026-10"
+        );
+    }
+
+    private void saveThumbnailIfPresent(int userId, int modelId, int versionId, String thumbnailData) {
+        if (thumbnailData == null || thumbnailData.isBlank()) {
+            return;
+        }
+        try {
+            String base64Content = thumbnailData;
+            String format = "png";
+            String mime = "image/png";
+            if (thumbnailData.startsWith("data:")) {
+                int commaIdx = thumbnailData.indexOf(',');
+                if (commaIdx > 0) {
+                    String prefix = thumbnailData.substring(5, commaIdx);
+                    if (prefix.contains("image/jpeg") || prefix.contains("image/jpg")) {
+                        format = "jpg";
+                        mime = "image/jpeg";
+                    } else if (prefix.contains("image/png")) {
+                        format = "png";
+                        mime = "image/png";
+                    }
+                    base64Content = thumbnailData.substring(commaIdx + 1);
+                }
+            }
+            byte[] imageBytes = Base64.getDecoder().decode(base64Content.trim());
+            if (imageBytes.length > 2_000_000) {
+                log.warn("Thumbnail image exceeds 2MB limit: {} bytes", imageBytes.length);
+                return;
+            }
+            StoredModelFile stored = storageService.store(
+                    new ByteArrayInputStream(imageBytes),
+                    "preview." + format,
+                    mime,
+                    ModelFileRole.PREVIEW,
+                    modelId,
+                    versionId
+            );
+            modelFileRepository.saveAndFlush(new ModelFile(
+                    versionId,
+                    ModelFileRole.PREVIEW,
+                    stored.fileFormat(),
+                    stored.storageKey(),
+                    stored.mimeType(),
+                    stored.fileHash(),
+                    stored.fileSize(),
+                    false
+            ));
+        } catch (Exception e) {
+            log.warn("Failed to persist thumbnail preview: {}", e.getMessage());
+        }
     }
 
     @Transactional

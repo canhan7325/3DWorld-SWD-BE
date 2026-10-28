@@ -12,8 +12,30 @@ public record StudioProjectDetailResponse(
         Instant createdAt,
         Instant updatedAt,
         Object scene,
-        List<StudioVersionSummary> versions
+        List<StudioVersionSummary> versions,
+        int revision,
+        String status,
+        String unit,
+        String thumbnailUrl,
+        String thumbnail
 ) {
+    public StudioProjectDetailResponse(
+            Integer modelId,
+            String name,
+            String modelType,
+            String originType,
+            int currentVersion,
+            Instant createdAt,
+            Instant updatedAt,
+            Object scene,
+            List<StudioVersionSummary> versions
+    ) {
+        this(modelId, name, modelType, originType, currentVersion, createdAt, updatedAt, scene, versions,
+                currentVersion, "saved", "mm",
+                "/api/studio/projects/" + modelId + "/thumbnail",
+                "/api/studio/projects/" + modelId + "/thumbnail");
+    }
+
     public record StudioVersionSummary(
             Integer modelVersionId,
             Integer parentVersionId,

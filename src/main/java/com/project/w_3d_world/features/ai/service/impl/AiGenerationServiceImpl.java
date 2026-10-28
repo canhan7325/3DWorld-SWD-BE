@@ -342,6 +342,13 @@ public class AiGenerationServiceImpl implements AiGenerationService {
         String originalName = file.getOriginalFilename() == null ? "image." + mime.substring(6) : file.getOriginalFilename();
         String modelName = checkedName(name, originalName);
 
+        User preCheckUser = userRepository.findById(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
+        if (creditCost > 0 && preCheckUser.getAiCreditsBalance() < creditCost) {
+            throw new ApiException(HttpStatus.PAYMENT_REQUIRED,
+                    "Insufficient AI credits: required " + creditCost + ", available " + preCheckUser.getAiCreditsBalance());
+        }
+
         // Stage input image in user-isolated staged memory store
         String ext = mime.contains("png") ? "png" : (mime.contains("webp") ? "webp" : "jpg");
         String inputId = UUID.randomUUID().toString();
@@ -445,9 +452,119 @@ public class AiGenerationServiceImpl implements AiGenerationService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Request body is required.");
         }
         String mode = request.mode() != null ? request.mode().trim().toUpperCase(Locale.ROOT) : "TEXT_TO_3D";
-        if ("IMAGE_TO_3D".equalsIgnoreCase(mode)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Image-to-3D requires an image file upload. Please use multipart/form-data.");
+        boolean isImageMode = "IMAGE_TO_3D".equalsIgnoreCase(mode) || "SINGLE".equalsIgnoreCase(mode)
+                || "MULTI".equalsIgnoreCase(mode) || (request.uploadIds() != null && !request.uploadIds().isEmpty());
+
+        if (isImageMode) {
+            if (request.consent() != null && !request.consent()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "CONSENT_REQUIRED: Confirmation of image rights is required.");
+            }
+            if (request.uploadIds() == null || request.uploadIds().isEmpty()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_IMAGES: At least one uploaded image ID is required.");
+            }
+            String uploadId = request.uploadIds().get(0);
+            StagedUpload staged = stagedUploads.get(uploadId);
+            if (staged == null || staged.userId() != userId) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_IMAGES: Uploaded image not found or expired.");
+            }
+
+            int variants = (request.variants() != null && request.variants() > 0) ? request.variants() : 1;
+            Map<String, Object> normConfig = pricingService.normalizeConfig(request.config(), "single");
+            Map<String, Object> est = pricingService.estimate(normConfig, variants);
+            int creditCost = defaultCreditsPerGeneration > 0 ? defaultCreditsPerGeneration : ((Number) est.get("total")).intValue();
+
+            if (request.quotedCredits() != null && request.quotedCredits().intValue() != creditCost) {
+                throw new ApiException(HttpStatus.CONFLICT, "PRICE_CHANGED: Estimated credits (" + creditCost + ") do not match quoted credits (" + request.quotedCredits() + ").");
+            }
+
+            User userCheck = userRepository.findById(userId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
+            if (creditCost > 0 && userCheck.getAiCreditsBalance() < creditCost) {
+                throw new ApiException(HttpStatus.PAYMENT_REQUIRED, "INSUFFICIENT_CREDITS: Required " + creditCost + ", available " + userCheck.getAiCreditsBalance());
+            }
+
+            String originalName = staged.filename();
+            String modelName = checkedName(request.name(), originalName);
+            String prompt = request.prompt() != null ? request.prompt().trim() : "Image-to-3D: " + originalName;
+            String ext = staged.mimeType().contains("png") ? "png" : (staged.mimeType().contains("webp") ? "webp" : "jpg");
+            String inputStorageKey = "ai/inputs/" + userId + "/" + uploadId + "." + ext;
+
+            ProviderAdapter provider = providerRegistry.get();
+
+            InitialAiRequestData initData = txTemplate.execute(status -> {
+                User u = userRepository.lockById(userId)
+                        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
+                if (!u.isActive()) {
+                    throw new ApiException(HttpStatus.FORBIDDEN, "Account is not active.");
+                }
+                if (creditCost > 0) {
+                    u.deductAiCredits(creditCost);
+                    userRepository.saveAndFlush(u);
+                }
+
+                Model3D model;
+                if (request.projectId() != null) {
+                    model = model3DRepository.findByModelIdAndOwnerUserIdAndDeletedAtIsNull(request.projectId(), userId)
+                            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Project not found."));
+                } else {
+                    model = model3DRepository.saveAndFlush(new Model3D(
+                            userId,
+                            modelName,
+                            prompt,
+                            ModelType.AI_GENERATOR,
+                            ModelOriginType.AI,
+                            "PRIVATE"
+                    ));
+                }
+
+                AiRequest aiRequest = aiRequestRepository.saveAndFlush(new AiRequest(
+                        userId,
+                        model.getModelId(),
+                        null,
+                        "IMAGE_TO_3D",
+                        "GENERATE",
+                        prompt,
+                        inputStorageKey,
+                        provider.name(),
+                        null,
+                        creditCost,
+                        "PENDING"
+                ));
+
+                return new InitialAiRequestData(aiRequest, model, creditCost);
+            });
+
+            String providerJobId = null;
+            Exception providerError = null;
+            try {
+                providerJobId = provider.submitImage(staged.data(), staged.mimeType(), normConfig);
+            } catch (Exception e) {
+                providerError = e;
+            }
+
+            final String finalJobId = providerJobId;
+            final Exception finalError = providerError;
+
+            txTemplate.executeWithoutResult(status -> {
+                AiRequest aiReq = aiRequestRepository.lockByIdAndUserId(initData.aiRequest().getAiRequestId(), userId)
+                        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI request not found."));
+                if (finalJobId != null && !finalJobId.isBlank()) {
+                    aiReq.markProcessing(finalJobId);
+                    aiRequestRepository.saveAndFlush(aiReq);
+                } else {
+                    if (isExplicitProviderRejection(finalError)) {
+                        aiReq.markFailed("Provider rejected task: " + finalError.getMessage());
+                        refundAiCreditsOnce(aiReq, userId, "Provider rejected task");
+                    } else {
+                        aiReq.setFailureReason("PROVIDER_TIMEOUT: Task submitted to provider but acknowledgement was lost or timed out.");
+                    }
+                    aiRequestRepository.saveAndFlush(aiReq);
+                }
+            });
+
+            return detail(userId, initData.aiRequest().getAiRequestId());
         }
+
         GenerateTextRequest textReq = new GenerateTextRequest(request.name(), request.prompt(), request.config());
         return generateText(userId, textReq);
     }
@@ -764,8 +881,7 @@ public class AiGenerationServiceImpl implements AiGenerationService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Amount must be a positive integer.");
         }
         boolean isProduction = environment != null && environment.acceptsProfiles(Profiles.of("prod", "production"));
-        boolean isDevOrTest = environment == null || environment.acceptsProfiles(Profiles.of("test", "dev"));
-        if (isProduction || !isDevOrTest || !demoTopupEnabled) {
+        if (isProduction || !demoTopupEnabled) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Demo credit top-up is disabled in production environments.");
         }
 
