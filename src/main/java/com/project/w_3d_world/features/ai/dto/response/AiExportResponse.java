@@ -5,8 +5,20 @@ import java.time.Instant;
 public record AiExportResponse(
         Integer fileId,
         String format,
+        String fileName,
         Long fileSize,
         String downloadUrl,
         String fileHash,
         Instant exportedAt
-) {}
+) {
+    public AiExportResponse(
+            Integer fileId,
+            String format,
+            Long fileSize,
+            String downloadUrl,
+            String fileHash,
+            Instant exportedAt
+    ) {
+        this(fileId, format, "model." + (format == null ? "bin" : format.toLowerCase()), fileSize, downloadUrl, fileHash, exportedAt);
+    }
+}

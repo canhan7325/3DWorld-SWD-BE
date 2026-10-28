@@ -64,7 +64,7 @@ public class MockAdapter implements ProviderAdapter {
         }
         if (instantSuccess) {
             return new ProviderTask("SUCCEEDED", 100,
-                    Map.of("glb", "mock://glb/" + taskId, "stl", "mock://stl/" + taskId),
+                    Map.of("glb", "mock://glb/" + taskId, "stl", "mock://stl/" + taskId, "obj", "mock://obj/" + taskId, "fbx", "mock://fbx/" + taskId),
                     null, null, null);
         }
         long el = System.currentTimeMillis() - startedAt(taskId);
@@ -76,14 +76,28 @@ public class MockAdapter implements ProviderAdapter {
             return new ProviderTask("IN_PROGRESS", p, Map.of(), null, null, null);
         }
         return new ProviderTask("SUCCEEDED", 100,
-                Map.of("glb", "mock://glb/" + taskId, "stl", "mock://stl/" + taskId),
+                Map.of("glb", "mock://glb/" + taskId, "stl", "mock://stl/" + taskId, "obj", "mock://obj/" + taskId, "fbx", "mock://fbx/" + taskId),
                 null, null, null);
     }
 
     @Override
-    public byte[] downloadGlb(String glbUrlOrReference) {
-        String seed = glbUrlOrReference == null ? "mock-seed" : glbUrlOrReference;
+    public byte[] downloadAsset(String urlOrReference) {
+        String seed = urlOrReference == null ? "mock-seed" : urlOrReference;
+        if (seed.contains("/stl/") || seed.endsWith(".stl")) {
+            return Procedural.makeStl(seed);
+        }
+        if (seed.contains("/obj/") || seed.endsWith(".obj")) {
+            return Procedural.makeObj(seed);
+        }
+        if (seed.contains("/fbx/") || seed.endsWith(".fbx")) {
+            return Procedural.makeFbx(seed);
+        }
         return Procedural.makeGlb(seed);
+    }
+
+    @Override
+    public byte[] downloadGlb(String glbUrlOrReference) {
+        return downloadAsset(glbUrlOrReference);
     }
 
     @Override
