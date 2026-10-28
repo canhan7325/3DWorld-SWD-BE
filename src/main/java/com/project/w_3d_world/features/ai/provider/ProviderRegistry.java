@@ -1,5 +1,6 @@
 package com.project.w_3d_world.features.ai.provider;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
@@ -16,6 +17,7 @@ public class ProviderRegistry {
     private final Map<String, ProviderAdapter> adapters = new ConcurrentHashMap<>();
     private final String defaultProviderName;
 
+    @Autowired
     public ProviderRegistry(
             Environment environment,
             @Value("${app.ai.meshy-api-key:}") String meshyApiKey,
