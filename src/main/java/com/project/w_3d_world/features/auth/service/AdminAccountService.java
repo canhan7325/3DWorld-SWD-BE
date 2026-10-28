@@ -31,6 +31,7 @@ public class AdminAccountService {
     private final UserRoleRepository userRoles;
     private final RoleRepository roles;
     private final AccountAuthorization authorization;
+    private final com.project.w_3d_world.features.wallet.service.CommissionWalletService sellerWallet;
     private final PasswordEncoder passwords;
     private final EmailTokenService email;
     private final AuditLogRepository audit;
@@ -86,6 +87,7 @@ public class AdminAccountService {
             throw ApiException.invalidRequest("Admin role requires an active account with verified email.");
         }
         if (active && role == RoleCode.SELLER) {
+            sellerWallet.requireReserve(target);
             Integer eligible = jdbc.queryForObject("""
                     SELECT count(*) FROM storefronts WHERE owner_user_id=? AND status='ACTIVE'
                     AND seller_verification_status='VERIFIED' AND expires_at>now()
