@@ -11,5 +11,7 @@ public interface ShipmentService {
 
     List<ShipmentResponse> listForSeller(int sellerId, int orderId);
 
+    List<ShipmentResponse> listForStaff(int staffId, int page, int size, String status);
+
     ShipmentResponse applyEvent(int actorId, int shipmentId, String event);
 }
