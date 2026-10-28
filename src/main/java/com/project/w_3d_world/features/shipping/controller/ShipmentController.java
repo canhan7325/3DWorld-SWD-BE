@@ -33,8 +33,8 @@ public class ShipmentController {
 
     @PostMapping("/orders/{orderId}/shipment")
     @Operation(
-            summary = "Create shipment",
-            description = "Create a demo shipment for a PROCESSING order, including accepted COD orders. Shipping does not record COD collection or settlement.")
+            summary = "Repair a missing shipment (staff/admin)",
+            description = "Customer checkout automatically creates a PREPARING shipment. This endpoint is only for staff/admin repair of legacy orders.")
     public ApiResponse<ShipmentResponse> create(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable int orderId,
@@ -65,7 +65,7 @@ public class ShipmentController {
     @PatchMapping("/shipments/{shipmentId}/event")
     @Operation(
             summary = "Apply shipment event",
-            description = "Apply DELIVERED, FAILED or RETURNED to a seller-owned shipment. RETURNED charges the seller twice the snapshotted shipping fee once; insufficient available balance becomes returnShippingDebt. No return charge for cancellation before shipment.")
+            description = "Seller may update PREPARING or HANDED_TO_CARRIER. Staff/Admin may update IN_TRANSIT, ARRIVED_AT_DESTINATION, DELIVERED, RECEIVED, FAILED or RETURNED.")
     public ApiResponse<ShipmentResponse> event(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable int shipmentId,

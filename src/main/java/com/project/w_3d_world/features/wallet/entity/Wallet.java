@@ -16,6 +16,7 @@ public class Wallet {
  @Column(name="return_shipping_debt",nullable=false) private BigDecimal returnShippingDebt=BigDecimal.ZERO;
  @Column(name="updated_at") private Instant updatedAt;
  public Wallet(int userId){this.userId=userId;}
+ public void creditAvailable(BigDecimal v){availableBalance=availableBalance.add(v);updatedAt=Instant.now();}
  public void addPending(BigDecimal v){pendingBalance=pendingBalance.add(v);updatedAt=Instant.now();}
  public void addReturnShippingDebt(BigDecimal v){returnShippingDebt=returnShippingDebt.add(v);updatedAt=Instant.now();}
  public BigDecimal settleReturnShippingDebt(BigDecimal available){BigDecimal paid=available.min(returnShippingDebt);returnShippingDebt=returnShippingDebt.subtract(paid);return paid;}

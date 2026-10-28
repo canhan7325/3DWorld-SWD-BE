@@ -40,6 +40,7 @@ public class StorefrontService {
     private final AuditLogRepository audit;
     private final JdbcTemplate jdbc;
     private final EntityManager entityManager;
+    private final com.project.w_3d_world.features.wallet.service.CommissionWalletService sellerWallet;
     private final com.project.w_3d_world.features.wallet.service.PlatformConfigService platformConfig;
 
     @Value("${app.storefront.monthly-fee:100000}")
@@ -97,6 +98,7 @@ public class StorefrontService {
     public SubscriptionResponse subscribe(int userId) {
         User user = users.lockById(userId).filter(User::isActive).orElseThrow(ApiException::invalidCredentials);
         requireEligible(user);
+        sellerWallet.requireReserve(userId);
         var store = stores.lockById(owned(userId).getId()).orElseThrow();
         if (store.getStatus() == StorefrontStatus.SUSPENDED) {
             throw new ApiException(HttpStatus.CONFLICT, "A suspended storefront cannot subscribe or renew.");
@@ -128,6 +130,10 @@ public class StorefrontService {
                 || !owner.getId().equals(transaction.getPayerUserId())
                 || transaction.getAmount().compareTo(subscription.getFeeSnapshot()) != 0
                 || store.getStatus() == StorefrontStatus.SUSPENDED || !verification.eligible(owner)) {
+            transaction.fulfillment("RECONCILIATION_REQUIRED");
+            return;
+        }
+        if (!sellerWallet.hasReserve(owner.getId())) {
             transaction.fulfillment("RECONCILIATION_REQUIRED");
             return;
         }
