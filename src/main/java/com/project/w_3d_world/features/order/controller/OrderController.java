@@ -52,12 +52,14 @@ public class OrderController {
     }
 
     @GetMapping("/seller")
+    @PreAuthorize("hasRole('SELLER')")
     @Operation(summary = "List seller orders", description = "Return orders for the signed-in seller storefront.")
     public ApiResponse<List<OrderResponse>> seller(@AuthenticationPrincipal AuthenticatedUser user) {
         return ApiResponse.success(orders.sellerOrders(user.userId()));
     }
 
     @PatchMapping("/{orderId}/status")
+    @PreAuthorize("hasAnyRole('SELLER', 'PRINT_STAFF', 'ADMIN')")
     @Operation(summary = "Update order status", description = "Set PROCESSING to accept a CREATED COD order without payment, or process a PAID online order. Stock is consumed once. Seller may also set SHIPPED from PROCESSING; a missing shipment is created and synchronized atomically.")
     public ApiResponse<OrderResponse> status(
             @AuthenticationPrincipal AuthenticatedUser user,

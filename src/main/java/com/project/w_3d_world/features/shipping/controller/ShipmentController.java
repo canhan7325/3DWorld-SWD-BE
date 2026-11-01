@@ -33,6 +33,7 @@ public class ShipmentController {
     private final ShipmentService shipments;
 
     @PostMapping("/orders/{orderId}/shipment")
+    @PreAuthorize("hasAnyRole('PRINT_STAFF', 'ADMIN')")
     @Operation(
             summary = "Repair a missing shipment (staff/admin)",
             description = "Customer checkout automatically creates a PREPARING shipment. This endpoint is only for staff/admin repair of legacy orders.")
@@ -54,6 +55,7 @@ public class ShipmentController {
     }
 
     @GetMapping("/seller/orders/{orderId}/shipments")
+    @PreAuthorize("hasAnyRole('SELLER', 'PRINT_STAFF', 'ADMIN')")
     @Operation(
             summary = "List seller shipment events",
             description = "Return shipment records for a seller-owned order.")
@@ -64,6 +66,7 @@ public class ShipmentController {
     }
 
     @GetMapping("/staff/shipments")
+    @PreAuthorize("hasAnyRole('PRINT_STAFF', 'ADMIN')")
     @Operation(summary = "List all shipments for Staff", description = "Staff/Admin can list every shipment and optionally filter by enum status.")
     public ApiResponse<List<ShipmentResponse>> staff(
             @AuthenticationPrincipal AuthenticatedUser user,
@@ -74,6 +77,7 @@ public class ShipmentController {
     }
 
     @PatchMapping("/shipments/{shipmentId}/event")
+    @PreAuthorize("hasAnyRole('SELLER', 'PRINT_STAFF', 'ADMIN')")
     @Operation(
             summary = "Apply shipment event",
             description = "Seller may update PREPARING or SHIPPED. Staff/Admin may update IN_TRANSIT, ARRIVED_AT_DESTINATION, DELIVERED, RECEIVED, FAILED or RETURNED.")

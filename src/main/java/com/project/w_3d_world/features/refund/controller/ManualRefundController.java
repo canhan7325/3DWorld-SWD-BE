@@ -32,18 +32,23 @@ public class ManualRefundController {
     @GetMapping("/refunds/{id}")
     public ApiResponse<Map<String,Object>> detail(@AuthenticationPrincipal AuthenticatedUser user,@PathVariable long id){return ApiResponse.success(service.detail(user.userId(),id));}
     @GetMapping({"/staff/refunds","/admin/refunds"})
+    @PreAuthorize("hasAnyRole('PRINT_STAFF', 'ADMIN')")
     @Operation(summary="Review queue and permanent refund history",description="Filter PENDING, APPROVED, REJECTED or PAID. Omit status to include all.")
     public ApiResponse<List<Map<String,Object>>> queue(@AuthenticationPrincipal AuthenticatedUser user,@RequestParam(required=false) String status,
             @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size){return ApiResponse.success(service.queue(user.userId(),status,page,size));}
     @PatchMapping("/staff/refunds/{id}/review")
+    @PreAuthorize("hasRole('PRINT_STAFF')")
     public ApiResponse<Map<String,Object>> review(@AuthenticationPrincipal AuthenticatedUser user,@PathVariable long id,@Valid @RequestBody Review request){return ApiResponse.success(service.review(user.userId(),id,request));}
     @PostMapping("/admin/refunds/{id}/transfer-details")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary="View bank details for approved refund",description="Admin only; records access reason in refund history. Account number is encrypted at rest and excluded from regular responses.")
     public ApiResponse<Map<String,String>> transferDetails(@AuthenticationPrincipal AuthenticatedUser user,@PathVariable long id,@RequestParam String reason){return ApiResponse.success(service.transferDetails(user.userId(),id,reason));}
     @PostMapping("/admin/refunds/{id}/confirm-transfer")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary="Confirm successful manual bank transfer",description="Admin only, after staff approval. Records platform cash debit and reverses pending seller earnings exactly once. Requires actual transfer reference.")
     public ApiResponse<Map<String,Object>> confirm(@AuthenticationPrincipal AuthenticatedUser user,@PathVariable long id,@Valid @RequestBody Transfer request){return ApiResponse.success(service.confirm(user.userId(),id,request));}
     @PostMapping("/staff/orders/{orderId}/return-shipping")
+    @PreAuthorize("hasAnyRole('PRINT_STAFF', 'ADMIN')")
     @Operation(summary="Record actual cancellation/return shipping fees",description="Staff/admin chooses payer and records actual outbound/return fees with carrier reconciliation reference. Cancellation fees must be borne by seller. Each order is assessed once.")
     public ApiResponse<Void> shipping(@AuthenticationPrincipal AuthenticatedUser user,@PathVariable int orderId,@Valid @RequestBody ShippingAssessment request){service.assessCancelled(user.userId(),orderId,request);return ApiResponse.success(null);}
 }
