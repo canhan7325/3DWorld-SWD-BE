@@ -90,7 +90,10 @@ public class CommissionWalletServiceImpl implements CommissionWalletService {
         BigDecimal total = outbound.add(inbound);
         BigDecimal applied = "SELLER".equals(payer) ? wallet.getAvailableBalance().min(total) : BigDecimal.ZERO;
         BigDecimal debt = "SELLER".equals(payer) ? total.subtract(applied) : BigDecimal.ZERO;
-        String meta = String.format(java.util.Locale.ROOT, "{\"refundId\":%s,\"payer\":\"%s\",\"outboundFee\":%s,\"returnFee\":%s,\"debited\":%s,\"debt\":%s,\"carrierReference\":\"%s\"}", refundId == null ? "null" : refundId.toString(), payer, outbound, inbound, applied, debt, carrierReference.replace("\"", ""));
+        String meta = com.project.w_3d_world.common.util.JsonValues.write(java.util.Map.of(
+                "refundId", refundId == null ? 0 : refundId, "sellerUserId", seller,
+                "payer", payer, "outboundFee", outbound, "returnFee", inbound,
+                "debited", applied, "debt", debt, "carrierReference", carrierReference));
         jdbc.update("INSERT INTO audit_logs(actor_user_id,action_type,entity_type,entity_id,reason,metadata) VALUES (?,?,?,?,?,cast(? as jsonb))", actor, "RETURN_SHIPPING_ASSESSED", "PHYSICAL_ORDER", orderId, reason, meta);
         if (applied.signum() > 0) {
             wallet.debitAvailable(applied);
@@ -123,7 +126,9 @@ public class CommissionWalletServiceImpl implements CommissionWalletService {
     }
 
     public void recordDebtPayments(int seller, BigDecimal amount, String key) {
-        // The existing wallet return_shipping_debt field is the source of truth; ledger entries already record settlement.
+        jdbc.update("INSERT INTO audit_logs(action_type,entity_type,entity_id,reason,metadata) "
+                + "VALUES ('RETURN_SHIPPING_DEBT_SETTLED','WALLET',?,'Automatic shipping debt offset',cast(? as jsonb))",
+                seller, com.project.w_3d_world.common.util.JsonValues.write(java.util.Map.of("amount", amount, "operationKey", key)));
     }
 
     @Transactional

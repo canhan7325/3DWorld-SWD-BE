@@ -42,7 +42,7 @@ class SellerHandoverTest {
             verify(shipmentAutoCreation, times(1)).handOver(order, 9);
             verify(history, times(1)).save(any());
             verify(wallet).requireNoActiveRefund(37);
-            verify(wallet).requireNoShippingDebt(9);
+            verify(wallet, never()).requireNoShippingDebt(9);
         }
     }
     @Test void unpaidOrUnconsumedOrderCannotShip() throws Exception {

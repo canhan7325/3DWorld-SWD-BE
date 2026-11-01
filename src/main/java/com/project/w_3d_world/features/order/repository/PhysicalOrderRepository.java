@@ -26,4 +26,7 @@ public interface PhysicalOrderRepository extends JpaRepository<PhysicalOrder, In
               and o.status in ('CREATED', 'PENDING_PAYMENT') order by o.id
             """)
     List<Integer> findExpiredReservationIds(@Param("now") Instant now);
+    @Query("select (count(o)>0) from PhysicalOrder o where o.storefrontId=:shop and o.status<>'CANCELLED' and o.createdAt>:cutoff")
+    boolean existsRecentShopOrder(@Param("shop") int shop,
+                                @Param("cutoff") Instant cutoff);
 }
