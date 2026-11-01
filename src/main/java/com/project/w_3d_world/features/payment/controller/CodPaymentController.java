@@ -30,6 +30,7 @@ public class CodPaymentController {
     }
 
     @PostMapping("/admin/orders/{orderId}/cod/collection")
+    @PreAuthorize("hasAnyRole('PRINT_STAFF', 'ADMIN')")
     @Operation(summary = "Record COD collected by carrier",
             description = "Admin/Print Staff records full amount, occurredAt, unique carrier reference, evidenceKey and reason after delivery. Collection does not mark money settled or credit a seller wallet. Identical retries are idempotent; mismatches return 409.")
     public ApiResponse<CodResponse> collect(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable int orderId,
@@ -38,6 +39,7 @@ public class CodPaymentController {
     }
 
     @PostMapping("/admin/orders/{orderId}/cod/settlement")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Record COD transferred to platform",
             description = "Admin verifies settlement evidence after collection. Amount must match the order total including shipping. Reused settlement references cannot settle another order. Does not release earnings or mark the order financially complete.")
     public ApiResponse<CodResponse> settle(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable int orderId,

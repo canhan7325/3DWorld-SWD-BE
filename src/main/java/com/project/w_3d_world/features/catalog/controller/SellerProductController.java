@@ -19,7 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/api/seller/products")
 @RequiredArgsConstructor
-@PreAuthorize("isAuthenticated()")
+@PreAuthorize("hasRole('SELLER')")
 @SecurityRequirement(name = "bearerAuth")
 @Tag(name = "Seller products", description = "Manage physical products belonging to the signed-in seller's storefront.")
 public class SellerProductController {

@@ -24,6 +24,7 @@ public class ShippingPackageController {
     private final ShippingPackageService packages;
 
     @GetMapping("/shipping/packaging-profiles")
+    @PreAuthorize("hasAnyRole('SELLER', 'PRINT_STAFF', 'ADMIN')")
     @Operation(summary = "Get packaging profiles", description = "Return active packaging profiles for Seller/Admin/Print Staff.")
     public ApiResponse<List<ProfileResponse>> profiles(@AuthenticationPrincipal AuthenticatedUser user) {
         return ApiResponse.success(packages.profiles(user.userId()));
@@ -36,6 +37,7 @@ public class ShippingPackageController {
     }
 
     @PostMapping("/orders/{orderId}/packages")
+    @PreAuthorize("hasAnyRole('SELLER', 'PRINT_STAFF', 'ADMIN')")
     @Operation(summary = "Prepare order packages", description = "Seller/staff replaces packages before shipment. Allocate every ordered unit exactly once. "
                     + "Capacity, weight, dimensions, packing group and fragile support are checked; paid order totals "
                     + "stay unchanged.")
