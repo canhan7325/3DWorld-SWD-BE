@@ -24,7 +24,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class ManualRefundController {
     private final ManualRefundService service;
     @PostMapping(value="/orders/{orderId}/refunds",consumes="multipart/form-data")
-    @Operation(summary="Submit full-order manual refund",description="Requires reason, verified buyer bank account and 1–5 JPEG/PNG images, each at most 5 MB. Evidence is stored in Cloudinary Refund folder.")
+    @Operation(summary="Submit full-order manual refund",description="Requires reason, verified buyer bank account and 1–5 JPEG/PNG images, each at most 5 MB. Evidence is stored in Cloudinary Refund folder. COD carrier settlement is not required to submit a request.")
     public ApiResponse<Map<String,Object>> submit(@AuthenticationPrincipal AuthenticatedUser user,@PathVariable int orderId,
             @RequestParam int bankAccountId,@RequestParam String accountNumber,@RequestParam String reason,@RequestPart List<MultipartFile> images){
         return ApiResponse.success(service.submit(user.userId(),orderId,bankAccountId,accountNumber,reason,images));
@@ -45,7 +45,7 @@ public class ManualRefundController {
     public ApiResponse<Map<String,String>> transferDetails(@AuthenticationPrincipal AuthenticatedUser user,@PathVariable long id,@RequestParam String reason){return ApiResponse.success(service.transferDetails(user.userId(),id,reason));}
     @PostMapping("/admin/refunds/{id}/confirm-transfer")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary="Confirm successful manual bank transfer",description="Admin only, after staff approval. Records platform cash debit and reverses pending seller earnings exactly once. Requires actual transfer reference.")
+    @Operation(summary="Confirm successful manual bank transfer",description="Admin only, after staff approval. Records platform cash debit and reverses pending seller earnings exactly once. Requires actual transfer reference and full platform receipt reconciliation, including COD settlement.")
     public ApiResponse<Map<String,Object>> confirm(@AuthenticationPrincipal AuthenticatedUser user,@PathVariable long id,@Valid @RequestBody Transfer request){return ApiResponse.success(service.confirm(user.userId(),id,request));}
     @PostMapping("/staff/orders/{orderId}/return-shipping")
     @PreAuthorize("hasAnyRole('PRINT_STAFF', 'ADMIN')")
