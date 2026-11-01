@@ -32,9 +32,10 @@ class ShippingDebtSettlementServiceTest {
         var earning=new SellerEarning(1,9,7,new BigDecimal("100000"),new BigDecimal("0.05"),new BigDecimal("5000"),new BigDecimal("95000"));
         ReflectionTestUtils.setField(earning,"id",3);earning.pending(Instant.now(),Instant.now().minusSeconds(1));
         var order=new PhysicalOrder(1,2,"{}",UUID.randomUUID(),new BigDecimal("100000"),BigDecimal.ZERO);
-        ReflectionTestUtils.setField(order,"status","RECEIVED");ReflectionTestUtils.setField(order,"refundDeadlineAt",Instant.now().minusSeconds(1));
+        ReflectionTestUtils.setField(order,"status","RECEIVED");ReflectionTestUtils.setField(order,"receivedAt",Instant.now().minusSeconds(4*86400L));ReflectionTestUtils.setField(order,"refundDeadlineAt",Instant.now().minusSeconds(1));
         when(orders.lockById(1)).thenReturn(Optional.of(order));when(earnings.lockByOrderId(1)).thenReturn(Optional.of(earning));
         when(wallets.lockByUserId(9)).thenReturn(Optional.of(wallet));
+        when(earnings.hasFullPlatformReceipt(eq(1),any())).thenReturn(true);
         service.releaseEligible(1);
         assertEquals(0,wallet.getReturnShippingDebt().signum());assertEquals(new BigDecimal("15000"),wallet.getAvailableBalance());
         assertEquals("RELEASED",earning.getStatus());assertEquals(0,wallet.getPendingBalance().signum());

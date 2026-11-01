@@ -18,6 +18,5 @@ public interface CommissionWalletService {
     void requireNoShippingDebt(int user);
     void received(int orderId, Instant at);
     void releaseEligible(int orderId);
-    void releaseDue();
     Wallet wallet(int userId);
 }

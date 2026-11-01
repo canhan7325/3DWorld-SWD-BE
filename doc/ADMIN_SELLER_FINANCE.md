@@ -56,3 +56,11 @@ Both debt age and non-cancelled-order inactivity must exceed `inactiveDays` (1â€
 ## Validation
 
 Targeted tests cover repeated return fees exceeding the reserve, debt offset on release/top-up and duplicate callbacks, overdue/inactive suspension and restoration, seller handover, controller authorization, Flyway adoption/re-run and dashboard SQL on temporary PostgreSQL fixtures.
+
+## Automatic recognition of commission
+
+The independent wallet scheduler runs every `app.wallet.earning-release-scan-ms` (default 60000 ms). It processes each order through a separate transactional service call. Expired reservation cancellation cannot skip the wallet scan; a failed earning is logged with its order ID, does not roll back other orders, and is retried on the next scan.
+
+A pending earning is released only when the order is `RECEIVED`, receipt time is present, platform receipt metadata and full successful payment/settled COD receipts exist, the refund deadline has passed, and no refund transaction is pending, processing or successful. A missing/stale earning eligibility timestamp is synchronized with the order deadline. If the order deadline is missing, receipt time plus the order's snapshotted refund window is used (72 hours for legacy rows without a snapshot).
+
+The release atomically moves pending seller funds, offsets shipping debt, writes ledgers, changes the earning to `RELEASED` and records `released_at`. The UI label remains `RECOGNIZED`. Repeated scans cannot release a completed earning twice. Dashboard realized commission is filtered by the actual `released_at`, so overdue earnings recovered today appear in today's recognition period, not backdated to the order date. No schema migration is needed for this scheduler correction.
