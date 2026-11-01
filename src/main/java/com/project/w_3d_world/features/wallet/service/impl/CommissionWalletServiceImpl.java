@@ -164,11 +164,19 @@ public class CommissionWalletServiceImpl implements CommissionWalletService {
     public void releaseEligible(int orderId) {
         PhysicalOrder order = orders.lockById(orderId).orElseThrow();
         SellerEarning earning = earnings.lockByOrderId(orderId).orElse(null);
-        if (earning == null || !"PENDING".equals(earning.getStatus()) || earning.getReleaseEligibleAt() == null
-                || earning.getReleaseEligibleAt().isAfter(Instant.now()) || !"RECEIVED".equals(order.getStatus())) return;
-        Integer openRefunds = jdbc.queryForObject("SELECT count(*) FROM transactions WHERE physical_order_id=? AND transaction_type='REFUND' AND status IN ('PENDING','PROCESSING','SUCCESS')", Integer.class, orderId);
-        if (openRefunds != null && openRefunds > 0) return;
-        if (order.getRefundDeadlineAt() != null && !order.getRefundDeadlineAt().isBefore(Instant.now())) return;
+        if (earning == null || !"PENDING".equals(earning.getStatus())
+                || !"RECEIVED".equals(order.getStatus()) || order.getReceivedAt() == null
+                || earning.getFundsReceivedAt() == null) return;
+        Instant deadline = order.getRefundDeadlineAt();
+        if (deadline == null) {
+            int hours = order.getRefundWindowHoursSnapshot() == null ? 72 : order.getRefundWindowHoursSnapshot();
+            if (hours < 0) throw new IllegalStateException("Invalid refund window snapshot.");
+            deadline = order.getReceivedAt().plusSeconds(hours * 3600L);
+        }
+        // Order receipt/deadline is authoritative; repair a missing or stale earning eligibility date.
+        earning.markReceived(deadline);
+        if (!deadline.isBefore(Instant.now())) return;
+        if (earnings.hasBlockingRefund(orderId) || !earnings.hasFullPlatformReceipt(orderId, order.getTotalAmount())) return;
         Wallet wallet = lockWallet(earning.getSellerUserId());
         BigDecimal net = earning.getNetAmount();
         wallet.releasePending(net);
@@ -187,11 +195,6 @@ public class CommissionWalletServiceImpl implements CommissionWalletService {
             ledgers.save(new WalletLedger(wallet.getId(), "RETURN_SHIPPING_DEBT_SETTLED", "AVAILABLE", debtPaid.negate(),
                     wallet.getAvailableBalance(), earning.getId(), "RETURN_DEBT_SETTLED:" + orderId));
         }
-    }
-
-    @Transactional
-    public void releaseDue() {
-        earnings.findReleaseCandidates(Instant.now()).forEach(earning -> releaseEligible(earning.getOrderId()));
     }
 
     @Transactional
