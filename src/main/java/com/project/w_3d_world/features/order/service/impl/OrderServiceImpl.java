@@ -226,7 +226,6 @@ public class OrderServiceImpl implements OrderService {
                 throw new ApiException(HttpStatus.CONFLICT, "Only a processing order with consumed stock can be shipped.");
             }
             wallet.requireNoActiveRefund(orderId);
-            wallet.requireNoShippingDebt(sellerId);
             shipmentAutoCreation.handOver(order, sellerId);
             order.transition("SHIPPED");
             history.save(new OrderStatusHistory(orderId, "PROCESSING", "SHIPPED", sellerId, "Seller handed parcel to carrier"));

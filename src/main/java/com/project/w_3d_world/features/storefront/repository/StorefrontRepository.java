@@ -20,4 +20,7 @@ public interface StorefrontRepository extends JpaRepository<Storefront, Integer>
     List<Storefront> findByIdIn(Collection<Integer> ids);
 
     Optional<Storefront> findByOwnerUserId(Integer ownerUserId);
+
+    boolean existsByOwnerUserIdAndStatus(Integer ownerUserId,
+            com.project.w_3d_world.features.storefront.enums.StorefrontStatus status);
 }

@@ -7,4 +7,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AuditLogRepository extends JpaRepository<AuditLog, Integer> {
     List<AuditLog> findByEntityTypeAndEntityIdOrderByCreatedAtDesc(
             String entityType, Integer entityId, org.springframework.data.domain.Pageable pageable);
+    boolean existsByActionTypeAndEntityTypeAndEntityId(String actionType, String entityType, Integer entityId);
 }

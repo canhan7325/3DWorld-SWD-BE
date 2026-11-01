@@ -38,7 +38,6 @@ public class ShipmentServiceImpl implements ShipmentService {
         authorization.requireRole(actorId, RoleCode.ADMIN, RoleCode.PRINT_STAFF);
         PhysicalOrder order = orders.lockById(orderId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Order does not exist."));
         wallet.requireNoActiveRefund(orderId);
-        wallet.requireNoShippingDebt(storefronts.findById(order.getStorefrontId()).orElseThrow().getOwnerUserId());
         if (!"PROCESSING".equals(order.getStatus()) || !"CONSUMED".equals(order.getReservationStatus())) throw ApiException.invalidRequest("Order is not ready for shipment.");
         Shipment shipment = shipments.findByPhysicalOrderId(orderId).orElseGet(() -> {
             Shipment value = new Shipment(orderId, request.carrierName().trim(), provider.createTrackingNumber(request.carrierName().trim(), orderId));
@@ -90,7 +89,6 @@ public class ShipmentServiceImpl implements ShipmentService {
                 if (!"PROCESSING".equals(order.getStatus()) || !"CONSUMED".equals(order.getReservationStatus()))
                     throw ApiException.invalidRequest("Order must be PROCESSING with consumed stock before handover.");
                 wallet.requireNoActiveRefund(order.getId());
-                wallet.requireNoShippingDebt(actorId);
                 shipment.handToCarrier();
                 order.transition("SHIPPED");
             }

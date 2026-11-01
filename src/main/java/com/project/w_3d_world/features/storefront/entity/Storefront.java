@@ -95,4 +95,7 @@ public class Storefront {
     public void invalidateVerification() {
         verificationStatus = VerificationStatus.PENDING;
     }
+    public void suspendTrading() { status = StorefrontStatus.SUSPENDED; }
+    public void restoreTrading() { status = expiresAt != null && expiresAt.isAfter(Instant.now())
+            ? StorefrontStatus.ACTIVE : StorefrontStatus.INACTIVE; }
 }

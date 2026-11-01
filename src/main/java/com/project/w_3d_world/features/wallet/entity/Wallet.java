@@ -14,12 +14,13 @@ public class Wallet {
  @Column(name="available_balance",nullable=false) private BigDecimal availableBalance=BigDecimal.ZERO;
  @Column(name="held_balance",nullable=false) private BigDecimal heldBalance=BigDecimal.ZERO;
  @Column(name="return_shipping_debt",nullable=false) private BigDecimal returnShippingDebt=BigDecimal.ZERO;
+ @Column(name="shipping_debt_since") private Instant shippingDebtSince;
  @Column(name="updated_at") private Instant updatedAt;
  public Wallet(int userId){this.userId=userId;}
  public void creditAvailable(BigDecimal v){availableBalance=availableBalance.add(v);updatedAt=Instant.now();}
  public void addPending(BigDecimal v){pendingBalance=pendingBalance.add(v);updatedAt=Instant.now();}
- public void addReturnShippingDebt(BigDecimal v){returnShippingDebt=returnShippingDebt.add(v);updatedAt=Instant.now();}
- public BigDecimal settleReturnShippingDebt(BigDecimal available){BigDecimal paid=available.min(returnShippingDebt);returnShippingDebt=returnShippingDebt.subtract(paid);return paid;}
+ public void addReturnShippingDebt(BigDecimal v){if(v.signum()<0)throw new IllegalArgumentException("Debt cannot be negative.");if(v.signum()>0&&returnShippingDebt.signum()==0)shippingDebtSince=Instant.now();returnShippingDebt=returnShippingDebt.add(v);updatedAt=Instant.now();}
+ public BigDecimal settleReturnShippingDebt(BigDecimal available){BigDecimal paid=available.min(returnShippingDebt);returnShippingDebt=returnShippingDebt.subtract(paid);if(returnShippingDebt.signum()==0)shippingDebtSince=null;updatedAt=Instant.now();return paid;}
  public void releasePending(BigDecimal v){pendingBalance=pendingBalance.subtract(v);availableBalance=availableBalance.add(v);updatedAt=Instant.now();}
  public void removePending(BigDecimal v){if(v.compareTo(pendingBalance)>0)throw new IllegalStateException("Insufficient pending balance.");pendingBalance=pendingBalance.subtract(v);updatedAt=Instant.now();}
  public void debitAvailable(BigDecimal v){if(v.compareTo(availableBalance)>0)throw new IllegalStateException("Insufficient available balance.");availableBalance=availableBalance.subtract(v);updatedAt=Instant.now();}
