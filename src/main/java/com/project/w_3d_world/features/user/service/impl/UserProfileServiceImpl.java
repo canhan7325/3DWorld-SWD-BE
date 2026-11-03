@@ -58,14 +58,12 @@ public class UserProfileServiceImpl implements UserProfileService {
         String normalizedPhone = AccountValidation.phone(request.phone());
         User user = users.lockById(id).filter(User::isActive).orElseThrow(ApiException::invalidCredentials);
         if (!Objects.equals(user.getPhone(), normalizedPhone)) {
-            for (UserBankAccount account : banks.findByUserIdAndActiveTrueOrderByIdAsc(id)) {
-                account.invalidateVerification();
-            }
             sellerVerification.invalidate(user, "Phone changed");
             auditLogs.save(new AuditLog(id, "PHONE_CHANGED", "USER", id,
-                    "Phone and bank verification invalidated", null));
+                    "Phone changed; seller verification requires review", null));
         }
         user.updateProfile(request.fullName().trim(), normalizedPhone);
+        user.reviewPhone(normalizedPhone != null && !normalizedPhone.isBlank());
         user.updateDateOfBirth(request.dateOfBirth());
         return UserResponse.from(user, capabilities.getCapabilities(user));
     }
@@ -153,6 +151,7 @@ public class UserProfileServiceImpl implements UserProfileService {
         user(id);
         validateBank(request);
         UserBankAccount bank = newBank(id, request);
+        bank.review(true);
         banks.save(bank);
         if (banks.findByUserIdAndActiveTrueOrderByIdAsc(id).size() == 1) {
             setDefaultBank(id, bank.getId());
@@ -173,9 +172,10 @@ public class UserProfileServiceImpl implements UserProfileService {
                 request.accountHolder().trim(),
                 hash(request.accountNumber()),
                 mask(request.accountNumber()));
+        bank.review(true);
         auditLogs.save(new AuditLog(
                 id, "BANK_ACCOUNT_UPDATED", "USER_BANK_ACCOUNT", bankId,
-                "Bank account details changed", "verification_status=PENDING"));
+                "Bank account details changed", "verification_status=VERIFIED"));
         return BankResponse.from(bank);
     }
 
