@@ -63,6 +63,7 @@ public class AuthServiceImpl implements AuthService {
                         passwordEncoder.encode(request.password()),
                         request.fullName().trim(),
                         AccountValidation.phone(request.phone()));
+        user.reviewPhone(user.getPhone() != null && !user.getPhone().isBlank());
         userRepository.saveAndFlush(user);
 
         UserRole userRole = new UserRole(user, customerRole);

@@ -71,7 +71,7 @@ public class SellerVerificationController {
     }
 
     @PatchMapping("/admin/users/{id}/seller-verification")
-    @PreAuthorize("hasAnyRole('ADMIN','PRINT_STAFF')")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(
             summary = "Approve or reject seller verification",
             description = "Requires the current submittedAt value and a reason; stale/self reviews are "

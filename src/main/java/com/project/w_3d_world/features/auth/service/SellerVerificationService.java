@@ -80,7 +80,7 @@ public class SellerVerificationService {
 
     @Transactional
     public Response review(int reviewerId, int userId, long submittedAt, boolean approved, String reason) {
-        authorization.requireRole(reviewerId, RoleCode.ADMIN, RoleCode.PRINT_STAFF);
+        authorization.requireRole(reviewerId, RoleCode.ADMIN);
         if (reviewerId == userId) {
             throw ApiException.invalidRequest("You cannot review your own verification.");
         }
