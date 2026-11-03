@@ -64,3 +64,21 @@ The independent wallet scheduler runs every `app.wallet.earning-release-scan-ms`
 A pending earning is released only when the order is `RECEIVED`, receipt time is present, platform receipt metadata and full successful payment/settled COD receipts exist, the refund deadline has passed, and no refund transaction is pending, processing or successful. A missing/stale earning eligibility timestamp is synchronized with the order deadline. If the order deadline is missing, receipt time plus the order's snapshotted refund window is used (72 hours for legacy rows without a snapshot).
 
 The release atomically moves pending seller funds, offsets shipping debt, writes ledgers, changes the earning to `RELEASED` and records `released_at`. The UI label remains `RECOGNIZED`. Repeated scans cannot release a completed earning twice. Dashboard realized commission is filtered by the actual `released_at`, so overdue earnings recovered today appear in today's recognition period, not backdated to the order date. No schema migration is needed for this scheduler correction.
+
+## Seller wallet history and earning troubleshooting
+
+Seller-only (controller and service role checks, identity from JWT):
+
+- `GET /api/users/me/payouts?page=0&size=20` (alias `/api/users/me/wallet/payouts`): newest first, stable ordering by creation time and transaction ID. Returns `transactionId`, `amount`, `status`, `bankAccountId`, `bankName`, `accountNumberMasked`, `accountHolder`, `transferReference`, `createdAt`, `reason`. Deleted/missing bank records do not hide the payout. Bank labels reflect the current linked bank record, not a historical snapshot. The latest stored reason is returned; old payouts that never persisted a reason remain null. New payout requests now persist their reason in the existing transaction field.
+- `GET /api/users/me/wallet/ledgers?page=0&size=20`: returns `ledgerId`, `entryType`, `balanceBucket`, `signedAmount`, `balanceAfter`, `transactionId`, `earningId`, `orderId`, `createdAt`. A missing wallet returns an empty list without creating a wallet. Size 1–100. Continue pages to fetch complete history. No full bank account token/number is exposed.
+
+Revenue release entry type in the existing DB is **`SELLER_REVENUE_RELEASE`**, not `SELLER_REVENUE_RELEASED`. It has two rows: negative PENDING and positive AVAILABLE. Render both with their respective buckets, rather than treating both rows as separate external income/expense. `PAYOUT_HOLD` increases HELD; `PAYOUT_COMPLETED` decreases HELD; return shipping decreases AVAILABLE. Shipping assessment entries without an earning link can have null `orderId` in the ledger response; order-linked fee evidence remains in the Admin debt details API.
+
+Admin-only diagnosis and retry:
+
+- `GET /api/admin/finance/orders/{orderId}/earning`: current earning/order state, platform receipts, effective refund deadline, released timestamp, `eligibleForRelease`, `recognitionStatus` and `blockers`.
+- `POST /api/admin/finance/orders/{orderId}/earning/reconcile`: retries the existing transactional release logic, then reads the committed state. If financially blocked, returns NOT_RECOGNIZED and blockers; no forced recognition or fabricated receipt. Transaction failures propagate as errors; they are not reported as success.
+
+Typical blockers: `ORDER_NOT_RECEIVED`, `PLATFORM_RECEIPT_NOT_RECONCILED` (including unremitted COD), `FUNDS_RECEIPT_NOT_POSTED`, `REFUND_WINDOW_NOT_EXPIRED`, `REFUND_IN_PROGRESS_OR_PAID`, `INSUFFICIENT_PENDING_BALANCE`, `EARNING_NOT_CREATED`. Missing or stale data must be reconciled using the corresponding payment/order workflow; elapsed 72 hours alone does not override these checks. Dashboard date filters for realized income use `released_at` (recognition day), not order date.
+
+These endpoints reuse existing tables and require no migration. They allow diagnosis against the deployed instance; local tests do not establish why a particular production order is pending.
