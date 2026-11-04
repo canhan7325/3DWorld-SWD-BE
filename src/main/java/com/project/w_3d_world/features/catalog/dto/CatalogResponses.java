@@ -39,7 +39,9 @@ public final class CatalogResponses {
                                     boolean available) {}
 
     public record ReviewResponse(Integer id, int rating, String comment, String images,
-                                 Instant createdAt) {}
+                                 Instant createdAt, com.project.w_3d_world.features.catalog.dto.response.ReviewReplyResponse sellerReply) {
+        public ReviewResponse(Integer id,int rating,String comment,String images,Instant createdAt){this(id,rating,comment,images,createdAt,null);}
+    }
 
     public record CatalogPage(List<ProductSummary> items, int page, int size, long totalElements, int totalPages) {}
 }
