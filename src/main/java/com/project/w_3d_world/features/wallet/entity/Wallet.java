@@ -17,6 +17,10 @@ public class Wallet {
  @Column(name="shipping_debt_since") private Instant shippingDebtSince;
  @Column(name="updated_at") private Instant updatedAt;
  public Wallet(int userId){this.userId=userId;}
+ /** Reserve stays inside available balance; it is never a platform fee or extra debit. */
+ public BigDecimal reserveBalance(BigDecimal target){return availableBalance.min(target);}
+ public BigDecimal reserveShortfall(BigDecimal target){return target.subtract(reserveBalance(target));}
+ public BigDecimal withdrawableBalance(BigDecimal target){return returnShippingDebt.signum()>0?BigDecimal.ZERO:availableBalance.subtract(target).max(BigDecimal.ZERO);}
  public void creditAvailable(BigDecimal v){availableBalance=availableBalance.add(v);updatedAt=Instant.now();}
  public void addPending(BigDecimal v){pendingBalance=pendingBalance.add(v);updatedAt=Instant.now();}
  public void addReturnShippingDebt(BigDecimal v){if(v.signum()<0)throw new IllegalArgumentException("Debt cannot be negative.");if(v.signum()>0&&returnShippingDebt.signum()==0)shippingDebtSince=Instant.now();returnShippingDebt=returnShippingDebt.add(v);updatedAt=Instant.now();}

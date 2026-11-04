@@ -131,18 +131,6 @@ public class CommissionWalletServiceImpl implements CommissionWalletService {
                 seller, com.project.w_3d_world.common.util.JsonValues.write(java.util.Map.of("amount", amount, "operationKey", key)));
     }
 
-    @Transactional
-    public boolean hasReserve(int user) {
-        var wallet = lockWallet(user);
-        return wallet.getAvailableBalance().compareTo(MINIMUM_RESERVE) >= 0 && wallet.getReturnShippingDebt().signum() == 0;
-    }
-
-    @Transactional
-    public void requireReserve(int user) {
-        if (!hasReserve(user)) throw new com.project.w_3d_world.common.exception.ApiException(org.springframework.http.HttpStatus.CONFLICT,
-                "Seller registration requires at least 100000 VND available and no shipping debt.");
-    }
-
     public void requireNoActiveRefund(int orderId) {
         if (jdbc.queryForObject("SELECT count(*) FROM transactions WHERE physical_order_id=? AND transaction_type='REFUND' AND status IN ('PENDING','PROCESSING','SUCCESS')", Integer.class, orderId) > 0)
             throw new com.project.w_3d_world.common.exception.ApiException(org.springframework.http.HttpStatus.CONFLICT, "Order has an active or paid refund.");

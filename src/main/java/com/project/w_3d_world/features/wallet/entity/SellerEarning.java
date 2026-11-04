@@ -25,5 +25,6 @@ public class SellerEarning {
  public void pending(Instant received, Instant eligible){status="PENDING";fundsReceivedAt=received;pendingPostedAt=Instant.now();releaseEligibleAt=eligible;}
  public void markReceived(Instant received){ if("PENDING".equals(status)) releaseEligibleAt=received; }
  public void voidForReturn(){status="VOID";commissionAmount=BigDecimal.ZERO;netAmount=grossAmount;}
+ public void reconcileCommission(BigDecimal rate,BigDecimal commission){commissionRateSnapshot=rate;commissionAmount=commission;netAmount=grossAmount.subtract(commission);}
  public void release(){status="RELEASED";releasedAt=Instant.now();}
 }

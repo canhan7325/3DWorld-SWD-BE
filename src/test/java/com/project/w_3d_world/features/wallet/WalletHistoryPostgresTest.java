@@ -22,8 +22,8 @@ class WalletHistoryPostgresTest {
             jdbc.execute("CREATE TABLE user_bank_accounts(bank_account_id int,user_id int,bank_name text,account_number_masked text,account_holder text)");
             jdbc.execute("CREATE TABLE wallets(wallet_id int,user_id int,pending_balance numeric)");
             jdbc.execute("CREATE TABLE wallet_ledgers(ledger_id int,wallet_id int,entry_type text,balance_bucket text,signed_amount numeric,balance_after numeric,transaction_id int,seller_earning_id int,created_at timestamptz)");
-            jdbc.execute("CREATE TABLE seller_earnings(earning_id int,physical_order_id int,earning_status text,commission_amount numeric,net_amount numeric,platform_funds_received_at timestamptz,release_eligible_at timestamptz,released_at timestamptz,wallet_id int)");
-            jdbc.execute("CREATE TABLE physical_orders(physical_order_id int,order_status text,total_amount numeric,received_at timestamptz,refund_deadline_at timestamptz,refund_window_hours_snapshot int)");
+            jdbc.execute("CREATE TABLE seller_earnings(earning_id int,physical_order_id int,earning_status text,commission_rate_snapshot numeric,commission_amount numeric,net_amount numeric,platform_funds_received_at timestamptz,release_eligible_at timestamptz,released_at timestamptz,wallet_id int)");
+            jdbc.execute("CREATE TABLE physical_orders(physical_order_id int,order_status text,total_amount numeric,subtotal numeric,commission_rate_snapshot numeric,received_at timestamptz,refund_deadline_at timestamptz,refund_window_hours_snapshot int)");
             jdbc.execute("INSERT INTO user_bank_accounts VALUES(4,9,'Bank','******6789','Seller')");
             jdbc.execute("INSERT INTO transactions(transaction_id,transaction_type,payee_user_id,payee_bank_account_id,amount,status,active_key,created_at,refund_reason) VALUES(1,'PAYOUT',9,4,10000,'REQUESTED',null,'2026-11-01','Withdrawal'),(2,'PAYOUT',9,4,20000,'SUCCESS','BANK-2','2026-11-02','Withdrawal'),(3,'PAYOUT',10,4,30000,'REQUESTED',null,'2026-11-03','Other seller'),(4,'PAYMENT',9,4,40000,'SUCCESS',null,'2026-11-03','Not payout'),(5,'PAYOUT',9,99,50000,'REJECTED',null,'2026-11-02','Rejected reason')");
             jdbc.execute("INSERT INTO wallets VALUES(7,9,95000),(8,10,20000)");
@@ -34,12 +34,12 @@ class WalletHistoryPostgresTest {
             assertNull(payouts.getFirst().bankName());assertEquals("Rejected reason",payouts.getFirst().reason());
             assertEquals("BANK-2",payouts.get(1).transferReference());assertEquals("******6789",payouts.get(1).accountNumberMasked());
             assertEquals(2,history.payouts(9,1,1).getFirst().transactionId());assertTrue(history.payouts(22,0,20).isEmpty());
-            jdbc.execute("INSERT INTO seller_earnings VALUES(4,37,'PENDING',5000,95000,'2026-10-25',null,null,7)");
+            jdbc.execute("INSERT INTO seller_earnings VALUES(4,37,'PENDING',0.05,5000,95000,'2026-10-25',null,null,7)");
             var ledgers=history.ledgers(9,0,20);assertEquals(2,ledgers.size());
             assertEquals("AVAILABLE",ledgers.get(0).balanceBucket());assertEquals("PENDING",ledgers.get(1).balanceBucket());
             assertEquals(37,ledgers.getFirst().orderId());assertEquals(0,ledgers.get(0).signedAmount().add(ledgers.get(1).signedAmount()).signum());
             assertEquals(1,history.ledgers(10,0,20).size());
-            jdbc.execute("INSERT INTO physical_orders VALUES(37,'RECEIVED',100000,'2026-10-26',null,72)");
+            jdbc.execute("INSERT INTO physical_orders VALUES(37,'RECEIVED',100000,100000,0.05,'2026-10-26',null,72)");
             var statusRepo=new EarningReleaseStatusRepository(jdbc);
             var status=statusRepo.status(37).getFirst();assertNotNull(status.get("effective_refund_deadline"));
             assertEquals(0,((BigDecimal)status.get("platform_received")).signum());assertEquals(false,status.get("blocking_refund"));

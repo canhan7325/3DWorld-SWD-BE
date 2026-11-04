@@ -27,6 +27,6 @@ public class EarningReconciliationController {
     @Operation(summary="Explain pending/recognized commission",description="Returns receipt/deadline/release timestamps and blockers; dashboard recognition uses released_at, not order creation date.")
     public ApiResponse<Map<String,Object>> status(@AuthenticationPrincipal AuthenticatedUser user,@PathVariable int orderId){return ApiResponse.success(service.status(user.userId(),orderId));}
     @PostMapping("/reconcile")
-    @Operation(summary="Retry eligible earning release",description="Retains all financial checks. Returns recognition status and remaining blockers; does not fabricate payment receipt or force commission recognition.")
+    @Operation(summary="Retry eligible earning release",description="Reconciles earning commission to historical order rate with wallet/ledger correction, then retries release. Held payout funds are never spent; insufficient correction balance returns 409. Returns recognition status and remaining blockers.")
     public ApiResponse<Map<String,Object>> reconcile(@AuthenticationPrincipal AuthenticatedUser user,@PathVariable int orderId){return ApiResponse.success(service.reconcile(user.userId(),orderId));}
 }
