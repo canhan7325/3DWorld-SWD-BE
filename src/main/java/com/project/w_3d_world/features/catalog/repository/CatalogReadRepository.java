@@ -108,11 +108,15 @@ public class CatalogReadRepository {
         long count = jdbc.queryForObject(
                 "SELECT count(*) FROM reviews WHERE product_id=:id AND status='PUBLISHED'", args, Long.class);
         var items = jdbc.query("""
-                SELECT review_id,rating,comment,images::text,created_at FROM reviews
+                SELECT r.review_id,r.rating,r.comment,r.images::text,r.created_at,a.actor_user_id,a.metadata->>'reply' AS reply,a.created_at AS replied_at FROM reviews r
+                LEFT JOIN LATERAL (SELECT actor_user_id,metadata,created_at FROM audit_logs
+                  WHERE entity_type='REVIEW' AND entity_id=r.review_id AND action_type='PRODUCT_REVIEW_REPLIED'
+                  ORDER BY created_at DESC,audit_log_id DESC LIMIT 1) a ON true
                 WHERE product_id=:id AND status='PUBLISHED'
-                ORDER BY created_at DESC,review_id DESC LIMIT :limit OFFSET :offset
+                ORDER BY r.created_at DESC,r.review_id DESC LIMIT :limit OFFSET :offset
                 """, args, (rs, index) -> new ReviewResponse(rs.getInt(1), rs.getInt(2), rs.getString(3),
-                rs.getString(4), rs.getTimestamp(5).toInstant()));
+                rs.getString(4), rs.getTimestamp(5).toInstant(),rs.getString("reply")==null?null:
+                        new com.project.w_3d_world.features.catalog.dto.response.ReviewReplyResponse(rs.getInt("actor_user_id"),rs.getString("reply"),rs.getTimestamp("replied_at").toInstant())));
         return new MarketplacePage<>(items, page, size, count, (int) ((count + size - 1) / size));
     }
 }
