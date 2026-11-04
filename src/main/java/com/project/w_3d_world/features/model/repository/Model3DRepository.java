@@ -18,6 +18,8 @@ import java.util.Optional;
 
 public interface Model3DRepository extends JpaRepository<Model3D, Integer> {
     Page<Model3D> findByOwnerUserIdAndDeletedAtIsNull(Integer ownerUserId, Pageable pageable);
+    /** Dự án còn hoạt động của một người dùng, mới nhất trước (thay cho findAll() rồi lọc trong Java). */
+    List<Model3D> findByOwnerUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(Integer ownerUserId);
 
     Optional<Model3D> findByModelIdAndOwnerUserIdAndDeletedAtIsNull(Integer modelId, Integer ownerUserId);
 

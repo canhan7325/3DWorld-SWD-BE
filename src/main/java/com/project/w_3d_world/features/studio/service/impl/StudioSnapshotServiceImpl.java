@@ -51,8 +51,17 @@ public class StudioSnapshotServiceImpl implements StudioSnapshotService {
         List<ModelVersion> versions = modelVersionRepository.findByModelIdOrderByVersionNumberDesc(modelId);
         List<StudioSnapshotResponse> result = new ArrayList<>();
 
+        // Tệp của mọi phiên bản trong MỘT truy vấn (trước đây 1 truy vấn cho mỗi phiên bản)
+        Map<Integer, List<ModelFile>> filesByVersion = new HashMap<>();
+        if (!versions.isEmpty()) {
+            for (ModelFile f : modelFileRepository.findByModelVersionIdInOrderByFileIdAsc(
+                    versions.stream().map(ModelVersion::getModelVersionId).toList())) {
+                filesByVersion.computeIfAbsent(f.getModelVersionId(), k -> new ArrayList<>()).add(f);
+            }
+        }
+
         for (ModelVersion v : versions) {
-            List<ModelFile> files = modelFileRepository.findByModelVersionIdOrderByFileIdAsc(v.getModelVersionId());
+            List<ModelFile> files = filesByVersion.getOrDefault(v.getModelVersionId(), List.of());
             ModelFile targetFile = files.stream()
                     .filter(f -> f.getFileRole() == ModelFileRole.VIEWABLE_MODEL || f.getFileRole() == ModelFileRole.EDITABLE_SCENE)
                     .findFirst()
