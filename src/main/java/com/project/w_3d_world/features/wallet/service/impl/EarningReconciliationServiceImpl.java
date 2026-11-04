@@ -5,6 +5,7 @@ import com.project.w_3d_world.features.auth.enums.RoleCode;
 import com.project.w_3d_world.features.auth.service.AccountAuthorization;
 import com.project.w_3d_world.features.wallet.repository.EarningReleaseStatusRepository;
 import com.project.w_3d_world.features.wallet.service.CommissionWalletService;
+import com.project.w_3d_world.features.wallet.service.CommissionSnapshotService;
 import com.project.w_3d_world.features.wallet.service.EarningReconciliationService;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -24,6 +25,7 @@ public class EarningReconciliationServiceImpl implements EarningReconciliationSe
     private final EarningReleaseStatusRepository repository;
     private final CommissionWalletService commission;
     private final AccountAuthorization authorization;
+    private final CommissionSnapshotService snapshots;
 
     @Override @Transactional(readOnly=true)
     public Map<String,Object> status(int admin,int orderId){
@@ -46,9 +48,18 @@ public class EarningReconciliationServiceImpl implements EarningReconciliationSe
             if(row.get("net_amount")!=null && (row.get("pending_balance")==null
                     ||((BigDecimal)row.get("pending_balance")).compareTo((BigDecimal)row.get("net_amount"))<0))blockers.add("INSUFFICIENT_PENDING_BALANCE");
         }else if(row.get("released_at")==null)blockers.add("RELEASE_TIMESTAMP_MISSING");
+        if(row.get("order_commission_rate")!=null && row.get("commission_amount")!=null){
+            BigDecimal expected=((BigDecimal)row.get("subtotal")).multiply((BigDecimal)row.get("order_commission_rate")).setScale(2,java.math.RoundingMode.HALF_UP);
+            row.put("expected_commission",expected);
+            boolean mismatch=expected.compareTo((BigDecimal)row.get("commission_amount"))!=0;
+            row.put("commissionMismatch",mismatch);
+            if(mismatch)blockers.add("COMMISSION_SNAPSHOT_MISMATCH");
+        }
         row.put("blockers",blockers);
         row.put("eligibleForRelease",!released&&blockers.isEmpty());
-        row.put("recognitionStatus",released&&row.get("released_at")!=null?"RECOGNIZED":"NOT_RECOGNIZED");
+        row.put("recognitionStatus",released&&row.get("released_at")!=null
+                ?(Boolean.TRUE.equals(row.get("commissionMismatch"))?"COMMISSION_RECONCILIATION_REQUIRED":"RECOGNIZED")
+                :"NOT_RECOGNIZED");
         return row;
     }
     @Override @Transactional(propagation=Propagation.NOT_SUPPORTED)
@@ -56,6 +67,7 @@ public class EarningReconciliationServiceImpl implements EarningReconciliationSe
         authorization.requireRole(admin,RoleCode.ADMIN);
         // The proxied service owns its transaction. Re-read only after a successful commit.
         status(admin,orderId);
+        snapshots.reconcile(admin,orderId);
         commission.releaseEligible(orderId);
         return status(admin,orderId);
     }

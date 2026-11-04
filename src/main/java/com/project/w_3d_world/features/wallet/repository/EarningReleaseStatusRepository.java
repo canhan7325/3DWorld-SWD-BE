@@ -13,9 +13,9 @@ public class EarningReleaseStatusRepository {
 
     public List<Map<String,Object>> status(int orderId) {
         return jdbc.queryForList("""
-                SELECT o.physical_order_id,o.order_status,o.total_amount,o.received_at,o.refund_deadline_at,
+                SELECT o.physical_order_id,o.order_status,o.total_amount,o.subtotal,o.commission_rate_snapshot AS order_commission_rate,o.received_at,o.refund_deadline_at,
                   coalesce(o.refund_deadline_at,o.received_at+make_interval(hours=>coalesce(o.refund_window_hours_snapshot,72))) AS effective_refund_deadline,
-                  e.earning_id,e.earning_status,e.commission_amount,e.net_amount,e.platform_funds_received_at,
+                  e.earning_id,e.earning_status,e.commission_rate_snapshot AS earning_commission_rate,e.commission_amount,e.net_amount,e.platform_funds_received_at,
                   e.release_eligible_at,e.released_at,w.pending_balance,
                   (SELECT coalesce(sum(t.amount),0) FROM transactions t
                     WHERE t.physical_order_id=o.physical_order_id AND t.transaction_type='PAYMENT'

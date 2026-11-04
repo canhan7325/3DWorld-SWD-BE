@@ -17,7 +17,7 @@ import static org.mockito.Mockito.*;
 class EarningReconciliationStatusTest {
     @Test void explainsWhyPast72HoursAloneIsNotEnough() {
         var repo=mock(EarningReleaseStatusRepository.class);var commission=mock(CommissionWalletService.class);
-        var service=new EarningReconciliationServiceImpl(repo,commission,mock(AccountAuthorization.class));
+        var service=new EarningReconciliationServiceImpl(repo,commission,mock(AccountAuthorization.class),mock(com.project.w_3d_world.features.wallet.service.CommissionSnapshotService.class));
         var row=eligible();row.put("platform_received",BigDecimal.ZERO);row.put("blocking_refund",true);
         when(repo.status(37)).thenReturn(List.of(row));
         var result=service.status(1,37);
@@ -27,13 +27,25 @@ class EarningReconciliationStatusTest {
     }
     @Test void retryReportsCommittedRecognitionDateAndDoesNotInventIt() {
         var repo=mock(EarningReleaseStatusRepository.class);var commission=mock(CommissionWalletService.class);
-        var service=new EarningReconciliationServiceImpl(repo,commission,mock(AccountAuthorization.class));
+        var service=new EarningReconciliationServiceImpl(repo,commission,mock(AccountAuthorization.class),mock(com.project.w_3d_world.features.wallet.service.CommissionSnapshotService.class));
         var pending=eligible();var released=eligible();released.put("earning_status","RELEASED");
         released.put("released_at",Timestamp.from(Instant.now()));
         when(repo.status(37)).thenReturn(List.of(pending),List.of(released));
         var result=service.reconcile(1,37);
         verify(commission).releaseEligible(37);
         assertEquals("RECOGNIZED",result.get("recognitionStatus"));assertNotNull(result.get("released_at"));
+    }
+    @Test void releasedZeroCommissionAgainstFivePercentOrderIsFlagged(){
+        var repo=mock(EarningReleaseStatusRepository.class);
+        var service=new EarningReconciliationServiceImpl(repo,mock(CommissionWalletService.class),mock(AccountAuthorization.class),mock(com.project.w_3d_world.features.wallet.service.CommissionSnapshotService.class));
+        var row=eligible();row.put("earning_status","RELEASED");row.put("released_at",Timestamp.from(Instant.now()));
+        row.put("subtotal",new BigDecimal("400000"));row.put("order_commission_rate",new BigDecimal("0.05"));row.put("commission_amount",BigDecimal.ZERO);
+        when(repo.status(31)).thenReturn(List.of(row));
+        var response=service.status(1,31);
+        assertEquals(new BigDecimal("20000.00"),response.get("expected_commission"));
+        assertEquals(true,response.get("commissionMismatch"));
+        assertEquals("COMMISSION_RECONCILIATION_REQUIRED",response.get("recognitionStatus"));
+        assertEquals(List.of("COMMISSION_SNAPSHOT_MISMATCH"),response.get("blockers"));
     }
     private Map<String,Object> eligible(){
         Map<String,Object> row=new LinkedHashMap<>();

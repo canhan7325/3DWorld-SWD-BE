@@ -10,7 +10,9 @@ Migration has been tested on an isolated local PostgreSQL schema, not applied to
 
 ## Balance and debt rules
 
-- 100,000 VND is a minimum retained **within available balance**, not an extra deposit credited on top of it. `held_balance` is reserved for payout requests.
+- No upfront 100,000 VND deposit is required for creating a shop, buying/activating its subscription, or granting the eligible seller role. Payment verification, seller approval and shop suspension checks still apply.
+- The reserve is funded automatically from released seller revenue, starting with the first eligible completed order. 100,000 VND is retained **within available balance**, not a fee, commission, or extra debit. A 190,000 VND release leaves 100,000 reserved and 90,000 withdrawable. A first release of only 30,000 reserves that amount; subsequent sales build up the remainder. Outstanding shipping debt is paid first.
+- `GET /api/users/me/wallet` adds `reserveBalance` and `reserveShortfall`; `availableBalance` includes the reserve and `withdrawableBalance` excludes it. `held_balance` remains reserved for payout requests.
 - Actual outbound + return fees are assessed once per order using the existing staff return-shipping/refund approval flow. Fees debit available balance down to zero (including the retained 100,000 VND); the shortfall accumulates in `return_shipping_debt`.
 - Outstanding debt is positive in DB. Dashboard also supplies `signed_shipping_debt` as a negative display amount.
 - `shipping_debt_since` records the start of the current unpaid debt episode. More charges do not reset it; fully repaying debt clears it. For historical debt, migration uses the wallet update time as an approximate start.
@@ -82,3 +84,18 @@ Admin-only diagnosis and retry:
 Typical blockers: `ORDER_NOT_RECEIVED`, `PLATFORM_RECEIPT_NOT_RECONCILED` (including unremitted COD), `FUNDS_RECEIPT_NOT_POSTED`, `REFUND_WINDOW_NOT_EXPIRED`, `REFUND_IN_PROGRESS_OR_PAID`, `INSUFFICIENT_PENDING_BALANCE`, `EARNING_NOT_CREATED`. Missing or stale data must be reconciled using the corresponding payment/order workflow; elapsed 72 hours alone does not override these checks. Dashboard date filters for realized income use `released_at` (recognition day), not order date.
 
 These endpoints reuse existing tables and require no migration. They allow diagnosis against the deployed instance; local tests do not establish why a particular production order is pending.
+
+
+## Dashboard showing zero while session expired
+
+An expired-session or failed-load message is not evidence that realized commission equals zero. FE must reauthenticate, verify the `/api/admin/dashboard/metrics` response, and avoid presenting cached/default zero as a successful fresh result. For a particular pending order, inspect `/api/admin/finance/orders/{orderId}/earning`, then retry `/reconcile` after correcting any blockers. An expired refund window alone must not override unsettled COD, an active refund, missing receipt confirmation, or inconsistent pending balances. The reserve is seller money and does not reduce the platform commission or delay the earning's RELEASED status.
+
+## Legacy zero-commission earning reconciliation
+
+The diagnostic now returns `order_commission_rate`, `earning_commission_rate`, `expected_commission`, `commissionMismatch`, and blocker `COMMISSION_SNAPSHOT_MISMATCH`. `expected_commission` is rounded to two decimal places from **order subtotal × historical order rate**, excluding shipping. A released earning with mismatched commission is flagged `COMMISSION_RECONCILIATION_REQUIRED` rather than reporting a healthy recognition state.
+
+`POST /api/admin/finance/orders/{orderId}/earning/reconcile` now first reconciles the earning against the order snapshot in a transaction. For pending earnings it adjusts PENDING; for released earnings it adjusts AVAILABLE. It writes a `COMMISSION_SNAPSHOT_CORRECTION` ledger and `COMMISSION_SNAPSHOT_RECONCILED` audit. `released_at` stays at its original recognition time. Repeated requests are no-ops once snapshots match. Orders whose historical rate is zero remain zero; current platform rate is not retroactively applied. Returned/void/refunded earnings are not rewritten by this repair.
+
+If correction requires funds but the seller's AVAILABLE balance is insufficient, it returns 409 before changing the earning or ledger. HELD payout funds cannot be spent. Admin must explicitly reject the relevant pending payout through the existing payout workflow (or seller top up) and retry reconciliation. This keeps pending bank transfers and wallet balances consistent; correcting only a dashboard SQL expression would leave seller balances overcredited.
+
+Read-only API verification on the configured database reproduced `realized_commission=0`, `provisional_commission=121000`, and `subscription_income=2188000`. Orders 31 and 38 were already RELEASED with earning rate 0/commission 0 despite order rate 0.05. Expected commissions are 20000 and 10000 respectively. Their seller had AVAILABLE 0 and HELD 403200 at inspection. No live database balances or payout statuses were changed by the diagnostic. After correcting these earnings, use a dashboard date range that includes their original `released_at` (2026-11-01 UTC / 2026-11-02 in Vietnam).

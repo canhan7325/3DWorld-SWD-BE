@@ -12,8 +12,6 @@ public interface CommissionWalletService {
     void assessShipping(int orderId, Long refundId, int actor, String payer, BigDecimal outbound, BigDecimal inbound, String reason, String carrierReference);
     void topUpVerified(PaymentTransaction transaction);
     void recordDebtPayments(int seller, BigDecimal amount, String key);
-    boolean hasReserve(int user);
-    void requireReserve(int user);
     void requireNoActiveRefund(int orderId);
     void requireNoShippingDebt(int user);
     void received(int orderId, Instant at);

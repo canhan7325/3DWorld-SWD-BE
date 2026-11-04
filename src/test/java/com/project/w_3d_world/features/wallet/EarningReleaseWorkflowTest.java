@@ -49,6 +49,10 @@ class EarningReleaseWorkflowTest {
     @Test void overdueReceiptRepairsNullEligibilityAndSetsReleasedAtOnce(){
         service.releaseEligible(1);
         assertEquals("RELEASED",earning.getStatus());assertNotNull(earning.getReleasedAt());
+        assertEquals(new BigDecimal("5000"),earning.getCommissionAmount());
+        assertEquals(new BigDecimal("95000"),wallet.reserveBalance(new BigDecimal("100000")));
+        assertEquals(new BigDecimal("5000"),wallet.reserveShortfall(new BigDecimal("100000")));
+        assertEquals(0,wallet.withdrawableBalance(new BigDecimal("100000")).signum());
         assertEquals(order.getRefundDeadlineAt(),earning.getReleaseEligibleAt());
         var released=earning.getReleasedAt();service.releaseEligible(1);
         assertEquals(released,earning.getReleasedAt());assertEquals(new BigDecimal("95000"),wallet.getAvailableBalance());
