@@ -1,5 +1,6 @@
 package com.project.w_3d_world.features.studio;
 
+import com.project.w_3d_world.features.model.BatchRepositoryStubs;
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.audit.entity.AuditLog;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
@@ -57,6 +58,7 @@ class StudioModelServiceTest {
 
     @BeforeEach
     void setUp() {
+        BatchRepositoryStubs.bridge(model3DRepository, modelVersionRepository, modelFileRepository);
         service = new StudioModelServiceImpl(
                 model3DRepository,
                 modelVersionRepository,

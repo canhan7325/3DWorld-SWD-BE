@@ -1,5 +1,6 @@
 package com.project.w_3d_world.features.ai;
 
+import com.project.w_3d_world.features.model.BatchRepositoryStubs;
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.ai.dto.request.GenerateTextRequest;
 import com.project.w_3d_world.features.ai.dto.response.AiTaskDetailResponse;
@@ -73,6 +74,7 @@ class AiStudioInteroperabilityTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        BatchRepositoryStubs.bridge(model3DRepository, modelVersionRepository, modelFileRepository);
         ProviderRegistry registry = new ProviderRegistry("", "", "", true); // Mock provider
         PricingService pricing = new PricingServiceImpl();
 

@@ -46,21 +46,36 @@ public class StudioProjectServiceImpl implements StudioProjectService {
     private final ModelDownloadService downloadService;
     private final AuditLogRepository auditLogRepository;
 
+    /** Gom tệp của nhiều phiên bản bằng một truy vấn; giữ thứ tự fileId tăng dần trong từng phiên bản. */
+    private Map<Integer, List<ModelFile>> filesByVersion(List<ModelVersion> versions) {
+        if (versions.isEmpty()) return Map.of();
+        Map<Integer, List<ModelFile>> map = new HashMap<>();
+        for (ModelFile f : modelFileRepository.findByModelVersionIdInOrderByFileIdAsc(
+                versions.stream().map(ModelVersion::getModelVersionId).toList())) {
+            map.computeIfAbsent(f.getModelVersionId(), k -> new ArrayList<>()).add(f);
+        }
+        return map;
+    }
+
     @Override
     @Transactional(readOnly = true)
     public List<StudioProjectSummaryResponse> listProjects(int userId) {
-        List<Model3D> models = model3DRepository.findAll().stream()
-                .filter(m -> Objects.equals(m.getOwnerUserId(), userId)
-                        && m.getDeletedAt() == null
-                        && (m.getModelType() == ModelType.WEB_EDITOR || m.getModelType() == ModelType.AI_GENERATOR))
-                .sorted(Comparator.comparing(Model3D::getCreatedAt).reversed())
+        // Chỉ đọc dự án của người dùng (trước đây findAll() tải mọi mô hình của mọi người rồi lọc trong Java)
+        List<Model3D> models = model3DRepository.findByOwnerUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(userId).stream()
+                .filter(m -> m.getModelType() == ModelType.WEB_EDITOR || m.getModelType() == ModelType.AI_GENERATOR)
                 .toList();
+
+        // Phiên bản mới nhất của tất cả dự án trong MỘT truy vấn (trước đây 1 truy vấn cho mỗi dự án)
+        Map<Integer, Integer> latestByModel = new HashMap<>();
+        if (!models.isEmpty()) {
+            for (ModelVersion v : modelVersionRepository.findLatestByModelIdIn(models.stream().map(Model3D::getModelId).toList())) {
+                latestByModel.merge(v.getModelId(), v.getVersionNumber(), Math::max);
+            }
+        }
 
         List<StudioProjectSummaryResponse> result = new ArrayList<>();
         for (Model3D m : models) {
-            int latestVersion = modelVersionRepository.findTopByModelIdOrderByVersionNumberDesc(m.getModelId())
-                    .map(ModelVersion::getVersionNumber)
-                    .orElse(1);
+            int latestVersion = latestByModel.getOrDefault(m.getModelId(), 1);
 
             result.add(new StudioProjectSummaryResponse(
                     m.getModelId(),
@@ -156,9 +171,12 @@ public class StudioProjectServiceImpl implements StudioProjectService {
         ModelVersion latest = versions.get(0);
         Object sceneData = null;
 
+        // Tệp của mọi phiên bản trong MỘT truy vấn (trước đây 1 truy vấn cho mỗi phiên bản)
+        Map<Integer, List<ModelFile>> filesByVersion = filesByVersion(versions);
+
         List<StudioProjectDetailResponse.StudioVersionSummary> versionSummaries = new ArrayList<>();
         for (ModelVersion v : versions) {
-            List<ModelFile> files = modelFileRepository.findByModelVersionIdOrderByFileIdAsc(v.getModelVersionId());
+            List<ModelFile> files = filesByVersion.getOrDefault(v.getModelVersionId(), List.of());
             List<StudioProjectDetailResponse.StudioFileInfo> fileInfos = new ArrayList<>();
 
             for (ModelFile f : files) {
@@ -192,7 +210,7 @@ public class StudioProjectServiceImpl implements StudioProjectService {
         }
 
         if (sceneData == null) {
-            ModelFile glb = modelFileRepository.findByModelVersionIdOrderByFileIdAsc(latest.getModelVersionId())
+            ModelFile glb = filesByVersion.getOrDefault(latest.getModelVersionId(), List.of())
                     .stream()
                     .filter(f -> f.getFileRole() == ModelFileRole.VIEWABLE_MODEL)
                     .findFirst()
@@ -349,8 +367,9 @@ public class StudioProjectServiceImpl implements StudioProjectService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Studio project not found."));
 
         List<ModelVersion> versions = modelVersionRepository.findByModelIdOrderByVersionNumberDesc(modelId);
+        Map<Integer, List<ModelFile>> filesByVersion = filesByVersion(versions);
         for (ModelVersion v : versions) {
-            List<ModelFile> files = modelFileRepository.findByModelVersionIdOrderByFileIdAsc(v.getModelVersionId());
+            List<ModelFile> files = filesByVersion.getOrDefault(v.getModelVersionId(), List.of());
             for (ModelFile f : files) {
                 if (f.getFileRole() == ModelFileRole.PREVIEW) {
                     return downloadService.openAuthorizedDownload(userId, modelId, f.getFileId());

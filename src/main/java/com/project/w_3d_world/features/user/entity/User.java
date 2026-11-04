@@ -16,6 +16,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 @Entity
+@EntityListeners(UserSessionCacheListener.class)
 @Table(name = "users")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -129,6 +130,10 @@ public class User {
     public void revokeSessions() {
         authVersion = Math.incrementExact(authVersion);
         updatedAt = Instant.now();
+        // Phiên cũ phải mất hiệu lực ngay, không đợi hết hạn nhớ tạm của JwtAuthenticationFilter
+        if (id != null) {
+            com.project.w_3d_world.features.auth.service.SessionStateCache.invalidate(id);
+        }
     }
 
     public void updateProfile(String fullName, String phone) {

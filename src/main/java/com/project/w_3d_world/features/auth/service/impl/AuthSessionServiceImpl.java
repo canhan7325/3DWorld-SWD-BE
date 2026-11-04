@@ -2,6 +2,7 @@ package com.project.w_3d_world.features.auth.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.auth.service.AuthSessionService;
+import com.project.w_3d_world.features.auth.service.SessionStateCache;
 import com.project.w_3d_world.features.user.entity.User;
 import com.project.w_3d_world.features.user.repository.UserRepository;
 import java.time.Instant;
@@ -25,9 +26,23 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     @Override
     @Transactional(readOnly = true)
     public void validateSession(int userId, UUID sessionId, Instant issuedAt) {
-        User user = userRepository.findById(userId).orElse(null);
-        if (user == null || !user.isActive() || sessionId == null || issuedAt == null
-                || sessionId.getMostSignificantBits() != user.getAuthVersion()) {
+        if (sessionId == null || issuedAt == null) {
+            throw ApiException.invalidSession();
+        }
+        // Dùng lại trạng thái vừa đọc (tối đa SessionStateCache.TTL) thay vì truy vấn users ở mọi request.
+        SessionStateCache.State state = SessionStateCache.get(userId);
+        if (state == null) {
+            User user = userRepository.findById(userId).orElse(null);
+            if (user == null) {
+                throw ApiException.invalidSession();
+            }
+            SessionStateCache.put(userId, user.isActive(), user.getAuthVersion());
+            state = SessionStateCache.get(userId);
+            if (state == null) {
+                state = new SessionStateCache.State(user.isActive(), user.getAuthVersion(), System.nanoTime());
+            }
+        }
+        if (!state.active() || sessionId.getMostSignificantBits() != state.authVersion()) {
             throw ApiException.invalidSession();
         }
     }
@@ -35,18 +50,22 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     @Override
     @Transactional
     public void revokeSession(int userId, UUID sessionId) {
+        SessionStateCache.evict(userId);
         userRepository.lockById(userId).ifPresent(user -> {
             user.revokeSessions();
             userRepository.saveAndFlush(user);
         });
+        SessionStateCache.evict(userId);
     }
 
     @Override
     @Transactional
     public void revokeAllSessions(int userId) {
+        SessionStateCache.evict(userId);
         userRepository.lockById(userId).ifPresent(user -> {
             user.revokeSessions();
             userRepository.saveAndFlush(user);
         });
+        SessionStateCache.evict(userId);
     }
 }

@@ -40,34 +40,70 @@ public class AiProjectServiceImpl implements AiProjectService {
     private final ModelStorageService storageService;
     private final AuditLogRepository auditLogRepository;
 
+    /**
+     * Thống kê đỉnh/tam giác của tệp GLB. Trước đây mỗi lần liệt kê dự án, Backend đọc lại TOÀN BỘ tệp GLB
+     * (5–13 MB mỗi tệp) của mọi dự án chỉ để đếm. Tệp đã lưu không đổi nên kết quả được nhớ theo
+     * storageKey + kích thước (LRU, tối đa 500 mục).
+     */
+    private static final Map<String, Map<String, Object>> GLB_STATS = Collections.synchronizedMap(
+            new LinkedHashMap<>(64, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Map<String, Object>> eldest) {
+                    return size() > 500;
+                }
+            });
+
+    private Map<String, Object> statsOf(ModelFile f) {
+        if (f == null || !"GLB".equalsIgnoreCase(f.getFileFormat()) || f.getStorageKey() == null) return null;
+        String key = f.getStorageKey() + "#" + f.getFileSize();
+        Map<String, Object> hit = GLB_STATS.get(key);
+        if (hit != null) return hit;
+        try (InputStream s = storageService.open(f.getStorageKey())) {
+            Map<String, Object> stats = GlbStats.of(s.readAllBytes());
+            if (stats != null) GLB_STATS.put(key, stats);
+            return stats;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     @Override
     @Transactional(readOnly = true)
     public List<AiProjectSummaryResponse> listProjects(int userId) {
-        List<Model3D> models = model3DRepository.findAll().stream()
-                .filter(m -> Objects.equals(m.getOwnerUserId(), userId)
-                        && m.getDeletedAt() == null
-                        && (m.getModelType() == ModelType.AI_GENERATOR || m.getOriginType() == ModelOriginType.AI))
-                .sorted(Comparator.comparing(Model3D::getCreatedAt).reversed())
+        // Chỉ đọc dự án của người dùng (trước đây findAll() tải mọi mô hình của mọi người rồi lọc trong Java)
+        List<Model3D> models = model3DRepository.findByOwnerUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(userId).stream()
+                .filter(m -> m.getModelType() == ModelType.AI_GENERATOR || m.getOriginType() == ModelOriginType.AI)
                 .toList();
+
+        // Phiên bản mới nhất + tệp chính của mọi dự án trong HAI truy vấn (trước đây 2 truy vấn cho mỗi dự án)
+        Map<Integer, ModelVersion> latestByModel = new HashMap<>();
+        Map<Integer, ModelFile> primaryByVersion = new HashMap<>();
+        if (!models.isEmpty()) {
+            for (ModelVersion v : modelVersionRepository.findLatestByModelIdIn(models.stream().map(Model3D::getModelId).toList())) {
+                latestByModel.merge(v.getModelId(), v, (a, b) -> a.getVersionNumber() >= b.getVersionNumber() ? a : b);
+            }
+            if (!latestByModel.isEmpty()) {
+                for (ModelFile f : modelFileRepository.findPrimaryByModelVersionIdIn(
+                        latestByModel.values().stream().map(ModelVersion::getModelVersionId).toList())) {
+                    primaryByVersion.putIfAbsent(f.getModelVersionId(), f);
+                }
+            }
+        }
 
         List<AiProjectSummaryResponse> results = new ArrayList<>();
         for (Model3D m : models) {
-            ModelVersion latest = modelVersionRepository.findTopByModelIdOrderByVersionNumberDesc(m.getModelId()).orElse(null);
+            ModelVersion latest = latestByModel.get(m.getModelId());
             int latestVer = latest != null ? latest.getVersionNumber() : 1;
             Integer primaryFileId = null;
             String downloadUrl = null;
             Map<String, Object> stats = null;
 
             if (latest != null) {
-                ModelFile f = modelFileRepository.findPrimaryByModelVersionId(latest.getModelVersionId()).orElse(null);
+                ModelFile f = primaryByVersion.get(latest.getModelVersionId());
                 if (f != null) {
                     primaryFileId = f.getFileId();
                     downloadUrl = "/api/ai/assets/" + f.getFileId() + "/file";
-                    if ("GLB".equalsIgnoreCase(f.getFileFormat())) {
-                        try (InputStream s = storageService.open(f.getStorageKey())) {
-                            stats = GlbStats.of(s.readAllBytes());
-                        } catch (Exception ignored) {}
-                    }
+                    stats = statsOf(f);
                 }
             }
 
@@ -97,8 +133,17 @@ public class AiProjectServiceImpl implements AiProjectService {
         List<AiTaskDetailResponse.VersionSummary> versionSummaries = new ArrayList<>();
         Map<String, Object> stats = null;
 
+        // Tệp chính của mọi phiên bản trong MỘT truy vấn (trước đây 1 truy vấn cho mỗi phiên bản)
+        Map<Integer, ModelFile> primaryByVersion = new HashMap<>();
+        if (!versions.isEmpty()) {
+            for (ModelFile f : modelFileRepository.findPrimaryByModelVersionIdIn(
+                    versions.stream().map(ModelVersion::getModelVersionId).toList())) {
+                primaryByVersion.putIfAbsent(f.getModelVersionId(), f);
+            }
+        }
+
         for (ModelVersion v : versions) {
-            ModelFile pf = modelFileRepository.findPrimaryByModelVersionId(v.getModelVersionId()).orElse(null);
+            ModelFile pf = primaryByVersion.get(v.getModelVersionId());
             Integer fileId = pf != null ? pf.getFileId() : null;
             String downloadUrl = fileId != null ? "/api/ai/assets/" + fileId + "/file" : null;
             versionSummaries.add(new AiTaskDetailResponse.VersionSummary(
@@ -109,10 +154,8 @@ public class AiProjectServiceImpl implements AiProjectService {
                     fileId,
                     downloadUrl
             ));
-            if (stats == null && pf != null && "GLB".equalsIgnoreCase(pf.getFileFormat())) {
-                try (InputStream s = storageService.open(pf.getStorageKey())) {
-                    stats = GlbStats.of(s.readAllBytes());
-                } catch (Exception ignored) {}
+            if (stats == null && pf != null) {
+                stats = statsOf(pf);
             }
         }
 
