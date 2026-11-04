@@ -29,6 +29,15 @@ public class ManualRefundController {
             @RequestParam int bankAccountId,@RequestParam String accountNumber,@RequestParam String reason,@RequestPart List<MultipartFile> images){
         return ApiResponse.success(service.submit(user.userId(),orderId,bankAccountId,accountNumber,reason,images));
     }
+    
+    @GetMapping({"/refunds", "/refunds/mine"})
+    @Operation(summary="List buyer refund requests",description="Return manual refunds requested by the signed-in buyer.")
+    public ApiResponse<List<Map<String,Object>>> myRefunds(@AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam(required=false) String status,
+            @RequestParam(defaultValue="0") int page,
+            @RequestParam(defaultValue="20") int size){
+        return ApiResponse.success(service.myRefunds(user.userId(),status,page,size));
+    }
     @GetMapping("/refunds/{id}")
     public ApiResponse<Map<String,Object>> detail(@AuthenticationPrincipal AuthenticatedUser user,@PathVariable long id){return ApiResponse.success(service.detail(user.userId(),id));}
     @GetMapping({"/staff/refunds","/admin/refunds"})

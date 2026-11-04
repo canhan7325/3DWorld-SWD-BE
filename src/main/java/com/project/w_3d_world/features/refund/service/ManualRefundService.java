@@ -9,6 +9,7 @@ public interface ManualRefundService {
     Map<String,Object> submit(int buyer, int orderId, int bankId, String accountNumber, String reason, List<MultipartFile> files);
     List<Map<String,Object>> queue(int actor, String status, int page, int size);
     Map<String,Object> detail(int actor, long id);
+    List<Map<String,Object>> myRefunds(int buyer, String status, int page, int size);
     Map<String,Object> review(int actor, long id, Review request);
     Map<String,Object> confirm(int admin, long id, Transfer request);
     void assessCancelled(int actor, int orderId, ShippingAssessment request);
