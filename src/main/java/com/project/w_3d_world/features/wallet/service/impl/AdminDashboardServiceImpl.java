@@ -1,15 +1,16 @@
 package com.project.w_3d_world.features.wallet.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
+import com.project.w_3d_world.common.util.JsonValues;
 import com.project.w_3d_world.features.audit.entity.AuditLog;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
+import com.project.w_3d_world.features.order.repository.PhysicalOrderRepository;
 import com.project.w_3d_world.features.storefront.entity.Storefront;
+import com.project.w_3d_world.features.storefront.enums.StorefrontStatus;
 import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
 import com.project.w_3d_world.features.wallet.repository.AdminDashboardRepository;
 import com.project.w_3d_world.features.wallet.repository.WalletRepository;
 import com.project.w_3d_world.features.wallet.service.AdminDashboardService;
-import com.project.w_3d_world.features.storefront.enums.StorefrontStatus;
-import com.project.w_3d_world.features.order.repository.PhysicalOrderRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -66,7 +67,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         if(store.getStatus()==StorefrontStatus.SUSPENDED)throw new ApiException(HttpStatus.CONFLICT,"Shop is already suspended.");
         store.suspendTrading();
         audits.save(new AuditLog(admin,"SHOP_SUSPENDED_FOR_DEBT","STOREFRONT",shop,reason,
-                com.project.w_3d_world.common.util.JsonValues.write(Map.of("debt",wallet.getReturnShippingDebt(),"inactiveDays",inactiveDays))));
+                JsonValues.write(Map.of("debt",wallet.getReturnShippingDebt(),"inactiveDays",inactiveDays))));
     }
     @Override @Transactional public void restore(int admin,int shop,String reason){
         reason(reason);var store=stores.lockById(shop).orElseThrow(()->ApiException.invalidRequest("Shop does not exist."));

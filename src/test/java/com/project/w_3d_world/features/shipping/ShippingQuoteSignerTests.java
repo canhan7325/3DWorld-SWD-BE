@@ -2,7 +2,7 @@ package com.project.w_3d_world.features.shipping;
 
 import static org.junit.jupiter.api.Assertions.*;
 import com.project.w_3d_world.common.exception.ApiException;
-import com.project.w_3d_world.features.shipping.dto.ShippingQuoteDtos.SignedQuote;
+import com.project.w_3d_world.features.shipping.dto.response.SignedQuote;
 import com.project.w_3d_world.features.shipping.service.ShippingQuoteSigner;
 import java.util.*;
 import org.junit.jupiter.api.Test;

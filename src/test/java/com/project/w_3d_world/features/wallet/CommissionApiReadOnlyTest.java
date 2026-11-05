@@ -5,8 +5,8 @@ import com.project.w_3d_world.features.order.repository.PhysicalOrderRepository;
 import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
 import com.project.w_3d_world.features.wallet.controller.AdminDashboardController;
 import com.project.w_3d_world.features.wallet.controller.EarningReconciliationController;
-import com.project.w_3d_world.features.wallet.repository.AdminDashboardRepository;
-import com.project.w_3d_world.features.wallet.repository.EarningReleaseStatusRepository;
+import com.project.w_3d_world.features.wallet.repository.impl.AdminDashboardRepositoryImpl;
+import com.project.w_3d_world.features.wallet.repository.impl.EarningReleaseStatusRepositoryImpl;
 import com.project.w_3d_world.features.wallet.repository.WalletRepository;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
 import com.project.w_3d_world.features.wallet.service.CommissionWalletService;
@@ -50,8 +50,8 @@ class CommissionApiReadOnlyTest {
             @Override public Connection getConnection(String user,String password) throws SQLException{throw new SQLException("Explicit credentials are disabled.");}
         };
         var jdbc=new JdbcTemplate(readonly);jdbc.setQueryTimeout(15);
-        var dashboard=new AdminDashboardServiceImpl(new AdminDashboardRepository(new NamedParameterJdbcTemplate(jdbc)),mock(StorefrontRepository.class),mock(WalletRepository.class),mock(AuditLogRepository.class),mock(PhysicalOrderRepository.class));
-        var reconciliation=new EarningReconciliationServiceImpl(new EarningReleaseStatusRepository(jdbc),mock(CommissionWalletService.class),mock(AccountAuthorization.class),mock(CommissionSnapshotService.class));
+        var dashboard=new AdminDashboardServiceImpl(new AdminDashboardRepositoryImpl(new NamedParameterJdbcTemplate(jdbc)),mock(StorefrontRepository.class),mock(WalletRepository.class),mock(AuditLogRepository.class),mock(PhysicalOrderRepository.class));
+        var reconciliation=new EarningReconciliationServiceImpl(new EarningReleaseStatusRepositoryImpl(jdbc),mock(CommissionWalletService.class),mock(AccountAuthorization.class),mock(CommissionSnapshotService.class));
         var mvc=MockMvcBuilders.standaloneSetup(new AdminDashboardController(dashboard),new EarningReconciliationController(reconciliation))
                 .setCustomArgumentResolvers(new org.springframework.web.method.support.HandlerMethodArgumentResolver(){
                     @Override public boolean supportsParameter(org.springframework.core.MethodParameter p){return p.getParameterType()==com.project.w_3d_world.common.config.AuthenticatedUser.class;}

@@ -1,15 +1,19 @@
 package com.project.w_3d_world.features.wallet.service.impl;
 
-import com.project.w_3d_world.features.wallet.service.CommissionWalletService;
-import com.project.w_3d_world.features.wallet.service.PlatformConfigService;
-
+import com.project.w_3d_world.common.exception.ApiException;
+import com.project.w_3d_world.common.util.JsonValues;
 import com.project.w_3d_world.features.order.entity.PhysicalOrder;
 import com.project.w_3d_world.features.order.repository.PhysicalOrderRepository;
+import com.project.w_3d_world.features.payment.entity.PaymentTransaction;
 import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
 import com.project.w_3d_world.features.wallet.entity.SellerEarning;
 import com.project.w_3d_world.features.wallet.entity.Wallet;
 import com.project.w_3d_world.features.wallet.entity.WalletLedger;
-import com.project.w_3d_world.features.wallet.repository.*;
+import com.project.w_3d_world.features.wallet.repository.SellerEarningRepository;
+import com.project.w_3d_world.features.wallet.repository.WalletLedgerRepository;
+import com.project.w_3d_world.features.wallet.repository.WalletRepository;
+import com.project.w_3d_world.features.wallet.service.CommissionWalletService;
+import com.project.w_3d_world.features.wallet.service.PlatformConfigService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -83,14 +87,14 @@ public class CommissionWalletServiceImpl implements CommissionWalletService {
         Wallet wallet = lockWallet(seller);
         if (!Set.of("SELLER", "PLATFORM", "BUYER").contains(payer)
                 || outbound.signum() < 0 || inbound.signum() < 0) {
-            throw com.project.w_3d_world.common.exception.ApiException.invalidRequest("Invalid shipping assessment.");
+            throw ApiException.invalidRequest("Invalid shipping assessment.");
         }
         if (jdbc.queryForObject("SELECT count(*) FROM audit_logs WHERE action_type='RETURN_SHIPPING_ASSESSED' AND entity_type='PHYSICAL_ORDER' AND entity_id=?", Integer.class, orderId) > 0)
-            throw new com.project.w_3d_world.common.exception.ApiException(org.springframework.http.HttpStatus.CONFLICT, "Shipping already assessed for this order.");
+            throw new ApiException(org.springframework.http.HttpStatus.CONFLICT, "Shipping already assessed for this order.");
         BigDecimal total = outbound.add(inbound);
         BigDecimal applied = "SELLER".equals(payer) ? wallet.getAvailableBalance().min(total) : BigDecimal.ZERO;
         BigDecimal debt = "SELLER".equals(payer) ? total.subtract(applied) : BigDecimal.ZERO;
-        String meta = com.project.w_3d_world.common.util.JsonValues.write(java.util.Map.of(
+        String meta = JsonValues.write(java.util.Map.of(
                 "refundId", refundId == null ? 0 : refundId, "sellerUserId", seller,
                 "payer", payer, "outboundFee", outbound, "returnFee", inbound,
                 "debited", applied, "debt", debt, "carrierReference", carrierReference));
@@ -104,11 +108,11 @@ public class CommissionWalletServiceImpl implements CommissionWalletService {
     }
 
     @Transactional
-    public void topUpVerified(com.project.w_3d_world.features.payment.entity.PaymentTransaction transaction) {
+    public void topUpVerified(PaymentTransaction transaction) {
         Wallet wallet = wallets.lockByUserId(transaction.getPayerUserId()).orElseThrow();
         if (!wallet.getId().equals(transaction.getWalletId()) || !"SUCCESS".equals(transaction.getStatus())
                 || !"TOPUP".equals(transaction.getTransactionType()) || transaction.getAmount().signum() <= 0) {
-            throw com.project.w_3d_world.common.exception.ApiException.invalidRequest("Verified wallet top-up required.");
+            throw ApiException.invalidRequest("Verified wallet top-up required.");
         }
         String key = "TOPUP:" + transaction.getId();
         if (jdbc.queryForObject("SELECT count(*) FROM wallet_ledgers WHERE idempotency_key=?", Integer.class, key) > 0) return;
@@ -128,17 +132,17 @@ public class CommissionWalletServiceImpl implements CommissionWalletService {
     public void recordDebtPayments(int seller, BigDecimal amount, String key) {
         jdbc.update("INSERT INTO audit_logs(action_type,entity_type,entity_id,reason,metadata) "
                 + "VALUES ('RETURN_SHIPPING_DEBT_SETTLED','WALLET',?,'Automatic shipping debt offset',cast(? as jsonb))",
-                seller, com.project.w_3d_world.common.util.JsonValues.write(java.util.Map.of("amount", amount, "operationKey", key)));
+                seller, JsonValues.write(java.util.Map.of("amount", amount, "operationKey", key)));
     }
 
     public void requireNoActiveRefund(int orderId) {
         if (jdbc.queryForObject("SELECT count(*) FROM transactions WHERE physical_order_id=? AND transaction_type='REFUND' AND status IN ('PENDING','PROCESSING','SUCCESS')", Integer.class, orderId) > 0)
-            throw new com.project.w_3d_world.common.exception.ApiException(org.springframework.http.HttpStatus.CONFLICT, "Order has an active or paid refund.");
+            throw new ApiException(org.springframework.http.HttpStatus.CONFLICT, "Order has an active or paid refund.");
     }
 
     @Transactional
     public void requireNoShippingDebt(int user) {
-        if (lockWallet(user).getReturnShippingDebt().signum() > 0) throw new com.project.w_3d_world.common.exception.ApiException(
+        if (lockWallet(user).getReturnShippingDebt().signum() > 0) throw new ApiException(
                 org.springframework.http.HttpStatus.CONFLICT, "Shipping debt must be settled before creating a shipment.");
     }
 

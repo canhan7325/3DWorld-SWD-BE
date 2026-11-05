@@ -1,6 +1,6 @@
 package com.project.w_3d_world.features.wallet;
 
-import com.project.w_3d_world.features.wallet.repository.AdminDashboardRepository;
+import com.project.w_3d_world.features.wallet.repository.impl.AdminDashboardRepositoryImpl;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -53,7 +53,7 @@ class AdminDashboardPostgresTest {
             jdbc.execute("INSERT INTO seller_earnings VALUES(1,1,100000,5000,0.05,95000,'RELEASED','2020-01-01','2020-01-05','2020-01-04'),(2,2,200000,10000,0.05,190000,'PENDING','2020-01-01',null,null),(3,3,100000,0,0.05,100000,'VOID','2020-01-01',null,null)");
             jdbc.execute("INSERT INTO storefront_subscriptions VALUES(1,2,99000,'2020-01-01','2020-01-01','2020-02-01','ACTIVE')");
             jdbc.execute("INSERT INTO audit_logs VALUES(1,3,'PHYSICAL_ORDER','RETURN_SHIPPING_ASSESSED','return','{\"payer\":\"SELLER\",\"outboundFee\":40000,\"returnFee\":40000,\"debited\":0,\"debt\":80000}',now())");
-            var repository=new AdminDashboardRepository(new NamedParameterJdbcTemplate(jdbc));
+            var repository=new AdminDashboardRepositoryImpl(new NamedParameterJdbcTemplate(jdbc));
             var from=Instant.parse("2019-12-31T17:00:00Z");var to=Instant.parse("2020-01-31T17:00:00Z");
             var metrics=repository.metrics(from,to);
             money("104000",metrics.get("realized_revenue"));

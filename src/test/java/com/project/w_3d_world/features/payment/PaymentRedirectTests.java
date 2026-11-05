@@ -6,7 +6,7 @@ import static org.mockito.Mockito.*;
 
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.order.service.OrderPaymentService;
-import com.project.w_3d_world.features.payment.dto.PaymentRequests.CreatePaymentRequest;
+import com.project.w_3d_world.features.payment.dto.request.CreatePaymentRequest;
 import com.project.w_3d_world.features.payment.entity.*;
 import com.project.w_3d_world.features.payment.repository.*;
 import com.project.w_3d_world.features.payment.service.*;

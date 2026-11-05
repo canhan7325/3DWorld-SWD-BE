@@ -1,6 +1,7 @@
 package com.project.w_3d_world.features.storefront;
 
 import com.project.w_3d_world.features.storefront.service.StorefrontService;
+import com.project.w_3d_world.features.storefront.service.impl.StorefrontServiceImpl;
 import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
 import com.project.w_3d_world.features.storefront.repository.StorefrontSubscriptionRepository;
 import com.project.w_3d_world.features.storefront.entity.Storefront;
@@ -30,7 +31,7 @@ class SubscriptionWithoutDepositTest {
         var stores=mock(StorefrontRepository.class);var subscriptions=mock(StorefrontSubscriptionRepository.class);
         var users=mock(UserRepository.class);var verification=mock(SellerVerificationService.class);
         var roles=mock(RoleRepository.class);var grants=mock(UserRoleRepository.class);var config=mock(PlatformConfigService.class);
-        var service=new StorefrontService(stores,subscriptions,users,verification,roles,grants,mock(AuditLogRepository.class),mock(JdbcTemplate.class),mock(EntityManager.class),config);
+        var service=new StorefrontServiceImpl(stores,subscriptions,users,verification,roles,grants,mock(AuditLogRepository.class),mock(JdbcTemplate.class),mock(EntityManager.class),config);
         var user=new User("seller@test.com","hash","Seller",null);ReflectionTestUtils.setField(user,"id",9);
         var store=new Storefront(9,"Shop",null);ReflectionTestUtils.setField(store,"id",2);
         var fee=new BigDecimal("99000");var subscription=new StorefrontSubscription(2,fee);ReflectionTestUtils.setField(subscription,"id",4);

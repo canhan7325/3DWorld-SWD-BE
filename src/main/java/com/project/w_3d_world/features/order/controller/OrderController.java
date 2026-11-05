@@ -2,11 +2,11 @@ package com.project.w_3d_world.features.order.controller;
 
 import com.project.w_3d_world.common.config.AuthenticatedUser;
 import com.project.w_3d_world.common.response.ApiResponse;
-import com.project.w_3d_world.features.order.dto.OrderRequests.CancelRequest;
-import com.project.w_3d_world.features.order.dto.OrderRequests.CheckoutRequest;
-import com.project.w_3d_world.features.order.dto.OrderRequests.HistoryResponse;
-import com.project.w_3d_world.features.order.dto.OrderRequests.StatusRequest;
-import com.project.w_3d_world.features.order.dto.OrderResponses.OrderResponse;
+import com.project.w_3d_world.features.order.dto.request.CancelRequest;
+import com.project.w_3d_world.features.order.dto.request.CheckoutRequest;
+import com.project.w_3d_world.features.order.dto.request.StatusRequest;
+import com.project.w_3d_world.features.order.dto.response.HistoryResponse;
+import com.project.w_3d_world.features.order.dto.response.OrderResponse;
 import com.project.w_3d_world.features.order.service.OrderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;

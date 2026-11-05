@@ -1,7 +1,11 @@
 package com.project.w_3d_world.features.catalog.repository;
 
+import com.project.w_3d_world.features.auth.enums.ApprovalStatus;
 import com.project.w_3d_world.features.auth.enums.RoleCode;
 import com.project.w_3d_world.features.catalog.entity.Product;
+import com.project.w_3d_world.features.storefront.enums.StorefrontStatus;
+import com.project.w_3d_world.features.storefront.enums.VerificationStatus;
+import com.project.w_3d_world.features.user.enums.AccountStatus;
 import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
@@ -26,15 +30,15 @@ public interface ProductRepository extends JpaRepository<Product, Integer> {
             select p from Product p
             where p.status = 'PUBLISHED'
               and exists (select s.id from Storefront s where s.id = p.storefrontId
-                          and s.status = com.project.w_3d_world.features.storefront.enums.StorefrontStatus.ACTIVE
+                          and s.status = StorefrontStatus.ACTIVE
                           and s.verificationStatus =
-                              com.project.w_3d_world.features.storefront.enums.VerificationStatus.VERIFIED
+                              VerificationStatus.VERIFIED
                           and s.expiresAt > CURRENT_TIMESTAMP
                           and s.owner.accountStatus =
-                              com.project.w_3d_world.features.user.enums.AccountStatus.ACTIVE
+                              AccountStatus.ACTIVE
                           and s.owner.emailVerified=true and s.owner.phoneVerified=true
                           and exists (select ur.id from UserRole ur where ur.user.id=s.ownerUserId
-                                      and ur.approvalStatus = com.project.w_3d_world.features.auth.enums.ApprovalStatus.ACTIVE
+                                      and ur.approvalStatus = ApprovalStatus.ACTIVE
                                       and ur.role.code = RoleCode.SELLER))
               and (cast(:keyword as string) is null
                    or lower(p.title) like lower(concat('%', cast(:keyword as string), '%')))

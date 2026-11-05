@@ -1,14 +1,14 @@
 package com.project.w_3d_world.features.shipping.service.impl;
 
-import com.project.w_3d_world.features.shipping.service.ShipmentAutoCreationService;
-import com.project.w_3d_world.features.shipping.service.ShippingProvider;
-
-import com.project.w_3d_world.features.order.entity.PhysicalOrder;
+import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.audit.entity.AuditLog;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
+import com.project.w_3d_world.features.order.entity.PhysicalOrder;
 import com.project.w_3d_world.features.shipping.entity.Shipment;
-import com.project.w_3d_world.features.shipping.entity.ShipmentStatus;
+import com.project.w_3d_world.features.shipping.enums.ShipmentStatus;
 import com.project.w_3d_world.features.shipping.repository.ShipmentRepository;
+import com.project.w_3d_world.features.shipping.service.ShipmentAutoCreationService;
+import com.project.w_3d_world.features.shipping.service.ShippingProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,7 +37,7 @@ public class ShipmentAutoCreationServiceImpl implements ShipmentAutoCreationServ
         // Caller holds the order lock, so repair and handover serialize with checkout/shipment events.
         Shipment shipment = createForOrder(order);
         if (shipment.getStatus() != ShipmentStatus.PREPARING && shipment.getStatus() != ShipmentStatus.PENDING) {
-            throw new com.project.w_3d_world.common.exception.ApiException(org.springframework.http.HttpStatus.CONFLICT,
+            throw new ApiException(org.springframework.http.HttpStatus.CONFLICT,
                     "Shipment is already handed over or in transport.");
         }
         shipment.handToCarrier();

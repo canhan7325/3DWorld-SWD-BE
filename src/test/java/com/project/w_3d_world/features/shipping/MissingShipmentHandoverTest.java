@@ -3,7 +3,7 @@ package com.project.w_3d_world.features.shipping;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
 import com.project.w_3d_world.features.order.entity.PhysicalOrder;
 import com.project.w_3d_world.features.shipping.entity.Shipment;
-import com.project.w_3d_world.features.shipping.entity.ShipmentStatus;
+import com.project.w_3d_world.features.shipping.enums.ShipmentStatus;
 import com.project.w_3d_world.features.shipping.repository.ShipmentRepository;
 import com.project.w_3d_world.features.shipping.service.ShippingProvider;
 import com.project.w_3d_world.features.shipping.service.impl.ShipmentAutoCreationServiceImpl;

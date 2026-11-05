@@ -1,7 +1,7 @@
 package com.project.w_3d_world.features.shipping.service;
 
-import com.project.w_3d_world.features.shipping.dto.ShipmentRequests.CreateShipmentRequest;
-import com.project.w_3d_world.features.shipping.dto.ShipmentResponses.ShipmentResponse;
+import com.project.w_3d_world.features.shipping.dto.request.CreateShipmentRequest;
+import com.project.w_3d_world.features.shipping.dto.response.ShipmentResponse;
 import java.util.List;
 
 public interface ShipmentService {

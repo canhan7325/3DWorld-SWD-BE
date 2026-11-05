@@ -1,8 +1,8 @@
 package com.project.w_3d_world.features.order.service;
 
-import com.project.w_3d_world.features.order.dto.OrderRequests.CheckoutRequest;
-import com.project.w_3d_world.features.order.dto.OrderRequests.HistoryResponse;
-import com.project.w_3d_world.features.order.dto.OrderResponses.OrderResponse;
+import com.project.w_3d_world.features.order.dto.request.CheckoutRequest;
+import com.project.w_3d_world.features.order.dto.response.HistoryResponse;
+import com.project.w_3d_world.features.order.dto.response.OrderResponse;
 import java.util.List;
 
 public interface OrderService {

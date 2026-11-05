@@ -2,7 +2,12 @@ package com.project.w_3d_world.features.shipping.packing;
 
 import com.project.w_3d_world.common.exception.ApiException;
 import java.math.BigDecimal;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 
 /** Bounded first-fit decreasing / best-short-side-fit heuristic; floor rotation only, no stacking. */

@@ -1,5 +1,27 @@
 package com.project.w_3d_world.features.wallet.controller;
-import com.project.w_3d_world.common.config.AuthenticatedUser; import com.project.w_3d_world.common.response.ApiResponse; import com.project.w_3d_world.features.wallet.dto.WalletDtos.*; import com.project.w_3d_world.features.wallet.service.WalletService; import io.swagger.v3.oas.annotations.*; import io.swagger.v3.oas.annotations.security.SecurityRequirement; import io.swagger.v3.oas.annotations.tags.Tag; import jakarta.validation.Valid; import lombok.RequiredArgsConstructor; import org.springframework.security.access.prepost.PreAuthorize; import org.springframework.security.core.annotation.AuthenticationPrincipal; import org.springframework.web.bind.annotation.*;
+
+import com.project.w_3d_world.common.config.AuthenticatedUser;
+import com.project.w_3d_world.common.response.ApiResponse;
+import com.project.w_3d_world.features.wallet.dto.request.PayoutDecision;
+import com.project.w_3d_world.features.wallet.dto.request.PayoutRequest;
+import com.project.w_3d_world.features.wallet.dto.response.PayoutResponse;
+import com.project.w_3d_world.features.wallet.dto.response.WalletResponse;
+import com.project.w_3d_world.features.wallet.service.WalletService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 @RestController @RequestMapping("/api") @RequiredArgsConstructor @PreAuthorize("isAuthenticated()") @SecurityRequirement(name="bearerAuth") @Tag(name="Seller wallet",description="Pending, available and payout-hold balances with idempotent ledger entries.")
 public class WalletController { private final WalletService service; @GetMapping("/users/me/wallet") @Operation(summary="Get wallet",description="Return pending revenue, available balance, payout hold and seller earning commission snapshots. No upfront deposit is required. reserveBalance is retained within availableBalance after revenue release; reserveShortfall shows the missing part of the 100000 VND target.") public ApiResponse<WalletResponse> mine(@AuthenticationPrincipal AuthenticatedUser user){return ApiResponse.success(service.mine(user.userId()));} @PostMapping("/users/me/payouts")
     @PreAuthorize("hasRole('SELLER')") @Operation(summary="Request payout",description="Lock available balance against a verified bank account. Admin must approve or reject; at least 100000 VND must remain available and shipping debt must be cleared.") public ApiResponse<PayoutResponse> request(@AuthenticationPrincipal AuthenticatedUser user,@Valid @RequestBody PayoutRequest request){return ApiResponse.success(service.request(user.userId(),request));} @PatchMapping("/admin/payouts/{id}")

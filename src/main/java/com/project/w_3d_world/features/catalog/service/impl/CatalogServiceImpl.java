@@ -1,9 +1,15 @@
 package com.project.w_3d_world.features.catalog.service.impl;
 
 import com.project.w_3d_world.common.exception.ApiException;
-import com.project.w_3d_world.features.catalog.dto.CatalogResponses.*;
-import com.project.w_3d_world.features.catalog.dto.MarketplacePage;
-import com.project.w_3d_world.features.catalog.repository.*;
+import com.project.w_3d_world.features.catalog.dto.response.CatalogPage;
+import com.project.w_3d_world.features.catalog.dto.response.ProductDetail;
+import com.project.w_3d_world.features.catalog.dto.response.ProductSummary;
+import com.project.w_3d_world.features.catalog.dto.response.StorefrontSummary;
+import com.project.w_3d_world.features.catalog.dto.response.VariantResponse;
+import com.project.w_3d_world.features.catalog.repository.CatalogReadRepository;
+import com.project.w_3d_world.features.catalog.repository.ProductMediaRepository;
+import com.project.w_3d_world.features.catalog.repository.ProductRepository;
+import com.project.w_3d_world.features.catalog.repository.ProductVariantRepository;
 import com.project.w_3d_world.features.catalog.service.CatalogService;
 import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
 import java.math.BigDecimal;

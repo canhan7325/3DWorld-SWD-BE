@@ -2,8 +2,8 @@ package com.project.w_3d_world.features.cart.controller;
 
 import com.project.w_3d_world.common.config.AuthenticatedUser;
 import com.project.w_3d_world.common.response.ApiResponse;
-import com.project.w_3d_world.features.cart.dto.CartRequests.ItemRequest;
-import com.project.w_3d_world.features.cart.dto.CartResponses.CartResponse;
+import com.project.w_3d_world.features.cart.dto.request.ItemRequest;
+import com.project.w_3d_world.features.cart.dto.response.CartResponse;
 import com.project.w_3d_world.features.cart.service.CartService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;

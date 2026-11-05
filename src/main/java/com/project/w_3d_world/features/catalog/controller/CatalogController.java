@@ -1,10 +1,10 @@
 package com.project.w_3d_world.features.catalog.controller;
 
 import com.project.w_3d_world.common.response.ApiResponse;
-import com.project.w_3d_world.features.catalog.dto.CatalogResponses.CatalogPage;
-import com.project.w_3d_world.features.catalog.dto.CatalogResponses.ProductDetail;
-import com.project.w_3d_world.features.catalog.dto.CatalogResponses.ReviewResponse;
 import com.project.w_3d_world.features.catalog.dto.MarketplacePage;
+import com.project.w_3d_world.features.catalog.dto.response.CatalogPage;
+import com.project.w_3d_world.features.catalog.dto.response.ProductDetail;
+import com.project.w_3d_world.features.catalog.dto.response.ReviewResponse;
 import com.project.w_3d_world.features.catalog.repository.CatalogReadRepository;
 import com.project.w_3d_world.features.catalog.service.CatalogService;
 import io.swagger.v3.oas.annotations.Operation;

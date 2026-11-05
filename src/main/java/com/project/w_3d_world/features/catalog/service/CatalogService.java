@@ -1,6 +1,7 @@
 package com.project.w_3d_world.features.catalog.service;
 
-import com.project.w_3d_world.features.catalog.dto.CatalogResponses.*;
+import com.project.w_3d_world.features.catalog.dto.response.CatalogPage;
+import com.project.w_3d_world.features.catalog.dto.response.ProductDetail;
 import java.math.BigDecimal;
 
 public interface CatalogService {

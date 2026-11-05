@@ -10,10 +10,10 @@ import com.project.w_3d_world.features.catalog.entity.Product;
 import com.project.w_3d_world.features.catalog.entity.ProductVariant;
 import com.project.w_3d_world.features.catalog.repository.ProductRepository;
 import com.project.w_3d_world.features.catalog.repository.ProductVariantRepository;
-import com.project.w_3d_world.features.order.dto.OrderRequests.CheckoutRequest;
-import com.project.w_3d_world.features.order.dto.OrderRequests.HistoryResponse;
-import com.project.w_3d_world.features.order.dto.OrderResponses.OrderItemResponse;
-import com.project.w_3d_world.features.order.dto.OrderResponses.OrderResponse;
+import com.project.w_3d_world.features.order.dto.request.CheckoutRequest;
+import com.project.w_3d_world.features.order.dto.response.HistoryResponse;
+import com.project.w_3d_world.features.order.dto.response.OrderItemResponse;
+import com.project.w_3d_world.features.order.dto.response.OrderResponse;
 import com.project.w_3d_world.features.order.entity.OrderStatusHistory;
 import com.project.w_3d_world.features.order.entity.PhysicalOrder;
 import com.project.w_3d_world.features.order.entity.PhysicalOrderItem;
@@ -22,16 +22,28 @@ import com.project.w_3d_world.features.order.repository.PhysicalOrderItemReposit
 import com.project.w_3d_world.features.order.repository.PhysicalOrderRepository;
 import com.project.w_3d_world.features.order.service.OrderService;
 import com.project.w_3d_world.features.payment.service.CodPaymentService;
-import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
+import com.project.w_3d_world.features.shipping.dto.response.ShopQuote;
+import com.project.w_3d_world.features.shipping.service.ShipmentAutoCreationService;
 import com.project.w_3d_world.features.shipping.service.ShippingQuoteService;
-import com.project.w_3d_world.features.shipping.dto.ShippingQuoteDtos.ShopQuote;
+import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
 import com.project.w_3d_world.features.user.repository.UserAddressRepository;
 import com.project.w_3d_world.features.user.repository.UserRepository;
+import com.project.w_3d_world.features.wallet.service.CommissionWalletService;
+import com.project.w_3d_world.features.wallet.service.PlatformConfigService;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -53,9 +65,9 @@ public class OrderServiceImpl implements OrderService {
     private final UserAddressRepository addresses;
     private final ShippingQuoteService shippingQuotes;
     private final CodPaymentService cod;
-    private final com.project.w_3d_world.features.wallet.service.PlatformConfigService platformConfig;
-    private final com.project.w_3d_world.features.wallet.service.CommissionWalletService wallet;
-    private final com.project.w_3d_world.features.shipping.service.ShipmentAutoCreationService shipmentAutoCreation;
+    private final PlatformConfigService platformConfig;
+    private final CommissionWalletService wallet;
+    private final ShipmentAutoCreationService shipmentAutoCreation;
 
     @Value("${app.order.reservation-ttl-minutes:15}")
     private long reservationTtlMinutes;
@@ -142,7 +154,7 @@ public class OrderServiceImpl implements OrderService {
         }
         UUID checkoutGroup = UUID.randomUUID();
         BigDecimal appliedCommissionRate = platformConfig.decimal(
-                com.project.w_3d_world.features.wallet.service.PlatformConfigService.COMMISSION_RATE, new BigDecimal("0.05"));
+                PlatformConfigService.COMMISSION_RATE, new BigDecimal("0.05"));
         if (appliedCommissionRate.signum() < 0 || appliedCommissionRate.compareTo(BigDecimal.ONE) > 0) {
             throw new IllegalStateException("Invalid commission rate configuration.");
         }

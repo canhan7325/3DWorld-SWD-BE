@@ -1,7 +1,7 @@
 package com.project.w_3d_world.features.cart.service;
 
-import com.project.w_3d_world.features.cart.dto.CartRequests.ItemRequest;
-import com.project.w_3d_world.features.cart.dto.CartResponses.CartResponse;
+import com.project.w_3d_world.features.cart.dto.request.ItemRequest;
+import com.project.w_3d_world.features.cart.dto.response.CartResponse;
 
 public interface CartService {
     CartResponse get(int userId);

@@ -1,7 +1,7 @@
 package com.project.w_3d_world.features.shipping.service;
 
 import com.project.w_3d_world.common.exception.ApiException;
-import com.project.w_3d_world.features.shipping.dto.ShippingQuoteDtos.SignedQuote;
+import com.project.w_3d_world.features.shipping.dto.response.SignedQuote;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;

@@ -1,7 +1,7 @@
 package com.project.w_3d_world.features.wallet;
 
-import com.project.w_3d_world.features.wallet.repository.EarningReleaseStatusRepository;
-import com.project.w_3d_world.features.wallet.repository.WalletHistoryRepository;
+import com.project.w_3d_world.features.wallet.repository.impl.EarningReleaseStatusRepositoryImpl;
+import com.project.w_3d_world.features.wallet.repository.impl.WalletHistoryRepositoryImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -28,7 +28,7 @@ class WalletHistoryPostgresTest {
             jdbc.execute("INSERT INTO transactions(transaction_id,transaction_type,payee_user_id,payee_bank_account_id,amount,status,active_key,created_at,refund_reason) VALUES(1,'PAYOUT',9,4,10000,'REQUESTED',null,'2026-11-01','Withdrawal'),(2,'PAYOUT',9,4,20000,'SUCCESS','BANK-2','2026-11-02','Withdrawal'),(3,'PAYOUT',10,4,30000,'REQUESTED',null,'2026-11-03','Other seller'),(4,'PAYMENT',9,4,40000,'SUCCESS',null,'2026-11-03','Not payout'),(5,'PAYOUT',9,99,50000,'REJECTED',null,'2026-11-02','Rejected reason')");
             jdbc.execute("INSERT INTO wallets VALUES(7,9,95000),(8,10,20000)");
             jdbc.execute("INSERT INTO wallet_ledgers VALUES(1,7,'SELLER_REVENUE_RELEASE','PENDING',-95000,0,null,4,'2026-11-02'),(2,7,'SELLER_REVENUE_RELEASE','AVAILABLE',95000,95000,null,4,'2026-11-02'),(3,8,'TOPUP','AVAILABLE',20000,20000,9,null,'2026-11-03')");
-            var history=new WalletHistoryRepository(jdbc);
+            var history=new WalletHistoryRepositoryImpl(jdbc);
             var payouts=history.payouts(9,0,20);
             assertEquals(3,payouts.size());assertEquals(5,payouts.getFirst().transactionId());
             assertNull(payouts.getFirst().bankName());assertEquals("Rejected reason",payouts.getFirst().reason());
@@ -40,7 +40,7 @@ class WalletHistoryPostgresTest {
             assertEquals(37,ledgers.getFirst().orderId());assertEquals(0,ledgers.get(0).signedAmount().add(ledgers.get(1).signedAmount()).signum());
             assertEquals(1,history.ledgers(10,0,20).size());
             jdbc.execute("INSERT INTO physical_orders VALUES(37,'RECEIVED',100000,100000,0.05,'2026-10-26',null,72)");
-            var statusRepo=new EarningReleaseStatusRepository(jdbc);
+            var statusRepo=new EarningReleaseStatusRepositoryImpl(jdbc);
             var status=statusRepo.status(37).getFirst();assertNotNull(status.get("effective_refund_deadline"));
             assertEquals(0,((BigDecimal)status.get("platform_received")).signum());assertEquals(false,status.get("blocking_refund"));
             jdbc.execute("INSERT INTO transactions(transaction_id,transaction_type,physical_order_id,status,settlement_mode,amount) VALUES(9,'PAYMENT',37,'SUCCESS','COD',100000),(10,'REFUND',37,'PROCESSING','PLATFORM',100000)");

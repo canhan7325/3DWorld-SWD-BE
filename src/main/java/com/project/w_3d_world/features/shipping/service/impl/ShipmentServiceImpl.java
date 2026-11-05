@@ -10,14 +10,19 @@ import com.project.w_3d_world.features.order.entity.PhysicalOrder;
 import com.project.w_3d_world.features.order.repository.OrderStatusHistoryRepository;
 import com.project.w_3d_world.features.order.repository.PhysicalOrderRepository;
 import com.project.w_3d_world.features.order.service.OrderService;
-import com.project.w_3d_world.features.shipping.dto.ShipmentRequests.CreateShipmentRequest;
-import com.project.w_3d_world.features.shipping.dto.ShipmentResponses.ShipmentResponse;
-import com.project.w_3d_world.features.shipping.entity.*;
+import com.project.w_3d_world.features.shipping.dto.request.CreateShipmentRequest;
+import com.project.w_3d_world.features.shipping.dto.response.ShipmentResponse;
+import com.project.w_3d_world.features.shipping.entity.Shipment;
+import com.project.w_3d_world.features.shipping.enums.ShipmentStatus;
 import com.project.w_3d_world.features.shipping.repository.ShipmentRepository;
-import com.project.w_3d_world.features.shipping.service.*;
+import com.project.w_3d_world.features.shipping.service.ShipmentService;
+import com.project.w_3d_world.features.shipping.service.ShippingProvider;
 import com.project.w_3d_world.features.storefront.repository.StorefrontRepository;
+import com.project.w_3d_world.features.wallet.service.CommissionWalletService;
 import jakarta.persistence.EntityManager;
-import java.util.*;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -30,7 +35,7 @@ public class ShipmentServiceImpl implements ShipmentService {
     private final OrderService orderService; private final AccountAuthorization authorization;
     private final OrderStatusHistoryRepository history; private final AuditLogRepository audit;
     private final EntityManager entityManager;
-    private final com.project.w_3d_world.features.wallet.service.CommissionWalletService wallet;
+    private final CommissionWalletService wallet;
 
     /** Kept for staff/admin repair of legacy orders. New customer orders auto-create a PREPARING shipment. */
     @Override @Transactional

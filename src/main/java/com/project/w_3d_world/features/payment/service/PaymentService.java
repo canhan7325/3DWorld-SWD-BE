@@ -1,8 +1,8 @@
 package com.project.w_3d_world.features.payment.service;
 
-import com.project.w_3d_world.features.payment.dto.PaymentRequests.CreatePaymentRequest;
-import com.project.w_3d_world.features.payment.dto.PaymentResponses.PaymentResponse;
-import com.project.w_3d_world.features.payment.dto.PaymentResponses.PodPaymentStatusResponse;
+import com.project.w_3d_world.features.payment.dto.request.CreatePaymentRequest;
+import com.project.w_3d_world.features.payment.dto.response.PaymentResponse;
+import com.project.w_3d_world.features.payment.dto.response.PodPaymentStatusResponse;
 import java.math.BigDecimal;
 
 public interface PaymentService {

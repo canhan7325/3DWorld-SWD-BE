@@ -4,12 +4,13 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.project.w_3d_world.common.exception.ApiException;
 import com.project.w_3d_world.features.audit.entity.AuditLog;
 import com.project.w_3d_world.features.audit.repository.AuditLogRepository;
-import com.project.w_3d_world.features.cart.dto.CartRequests.ItemRequest;
+import com.project.w_3d_world.features.cart.dto.request.ItemRequest;
 import com.project.w_3d_world.features.cart.service.CartService;
 import com.project.w_3d_world.features.cart.service.impl.CartServiceImpl;
-import com.project.w_3d_world.features.catalog.repository.CatalogReadRepository;
-import com.project.w_3d_world.features.order.dto.OrderRequests.CheckoutRequest;
+import com.project.w_3d_world.features.catalog.repository.impl.CatalogReadRepositoryImpl;
+import com.project.w_3d_world.features.order.dto.request.CheckoutRequest;
 import com.project.w_3d_world.features.order.service.OrderPaymentService;
+import com.project.w_3d_world.features.order.service.impl.OrderPaymentServiceImpl;
 import com.project.w_3d_world.features.order.service.OrderService;
 import com.project.w_3d_world.features.order.service.impl.OrderServiceImpl;
 import com.project.w_3d_world.features.payment.entity.PaymentTransaction;
@@ -48,9 +49,9 @@ class V2PersistenceIntegrationTest {
     @EnableAutoConfiguration
     @EntityScan("com.project.w_3d_world.features")
     @EnableJpaRepositories("com.project.w_3d_world.features")
-    @Import({CartServiceImpl.class, OrderServiceImpl.class, OrderPaymentService.class,
+    @Import({CartServiceImpl.class, OrderServiceImpl.class, OrderPaymentServiceImpl.class,
             com.project.w_3d_world.features.catalog.service.impl.CatalogServiceImpl.class,
-            CatalogReadRepository.class})
+            CatalogReadRepositoryImpl.class})
     static class Config {}
 
     @MockitoBean

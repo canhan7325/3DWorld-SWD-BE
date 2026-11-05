@@ -1,6 +1,7 @@
 package com.project.w_3d_world.features.shipping.repository;
 
 import com.project.w_3d_world.features.shipping.entity.Shipment;
+import com.project.w_3d_world.features.shipping.enums.ShipmentStatus;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -12,5 +13,5 @@ public interface ShipmentRepository extends JpaRepository<Shipment, Integer> {
 
     List<Shipment> findAllByOrderByCreatedAtDesc();
 
-    List<Shipment> findByStatusOrderByCreatedAtDesc(com.project.w_3d_world.features.shipping.entity.ShipmentStatus status);
+    List<Shipment> findByStatusOrderByCreatedAtDesc(ShipmentStatus status);
 }

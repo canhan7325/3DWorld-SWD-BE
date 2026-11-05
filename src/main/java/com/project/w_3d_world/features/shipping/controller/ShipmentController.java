@@ -2,9 +2,9 @@ package com.project.w_3d_world.features.shipping.controller;
 
 import com.project.w_3d_world.common.config.AuthenticatedUser;
 import com.project.w_3d_world.common.response.ApiResponse;
-import com.project.w_3d_world.features.shipping.dto.ShipmentRequests.CreateShipmentRequest;
-import com.project.w_3d_world.features.shipping.dto.ShipmentRequests.EventRequest;
-import com.project.w_3d_world.features.shipping.dto.ShipmentResponses.ShipmentResponse;
+import com.project.w_3d_world.features.shipping.dto.request.CreateShipmentRequest;
+import com.project.w_3d_world.features.shipping.dto.request.EventRequest;
+import com.project.w_3d_world.features.shipping.dto.response.ShipmentResponse;
 import com.project.w_3d_world.features.shipping.service.ShipmentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -18,9 +18,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
